@@ -123,7 +123,8 @@ class SystemFeeder:
     
     # Physical properties
     position: tuple = (0.0, 0.0, 0.0)  # (x, y, z)
-    activation_distance: float = 50.0  # cm
+    activation_radius: float = 3.0  # meters - max distance for valid beam break and feeder ownership
+    reactivation_distance: float = 2.0  # meters - min distance bat must fly to be eligible for rewards again
     
     # Motor configuration
     duration_ms: int = 500
@@ -202,8 +203,8 @@ class SystemState:
         return self.bats[bat_id]
     
     def add_feeder(self, feeder_id: int, name: str, position: tuple, active: bool = True, 
-                   activation_distance: float = 50.0, duration_ms: int = 500, 
-                   motor_speed: int = 255) -> SystemFeeder:
+                   activation_radius: float = 3.0, reactivation_distance: float = 2.0, 
+                   duration_ms: int = 500, motor_speed: int = 255) -> SystemFeeder:
         """Add or update feeder in system state"""
         if feeder_id not in self.feeders:
             self.feeders[feeder_id] = SystemFeeder(
@@ -211,7 +212,8 @@ class SystemState:
                 name=name,
                 position=position,
                 active=active,
-                activation_distance=activation_distance,
+                activation_radius=activation_radius,
+                reactivation_distance=reactivation_distance,
                 duration_ms=duration_ms,
                 motor_speed=motor_speed
             )
@@ -220,7 +222,8 @@ class SystemState:
             feeder.name = name
             feeder.position = position
             feeder.active = active
-            feeder.activation_distance = activation_distance
+            feeder.activation_radius = activation_radius
+            feeder.reactivation_distance = reactivation_distance
             feeder.duration_ms = duration_ms
             feeder.motor_speed = motor_speed
         return self.feeders[feeder_id]
@@ -240,12 +243,9 @@ class SystemState:
         if bat.activation_state == "ACTIVE":
             return  # Already active
         
-        # Debug output
-        print(f"🔄 Checking activation for bat {bat.bat_id}: last_reward_feeder_id={bat.last_reward_feeder_id}")
         
         # Check if bat can become active again
         if bat.last_reward_feeder_id is None or bat.last_reward_feeder_id not in self.feeders:
-            print(f"⚡ REACTIVATING {bat.bat_id}: No valid last reward feeder (feeder_id={bat.last_reward_feeder_id}, feeders={list(self.feeders.keys())})")
             bat.activation_state = "ACTIVE"
             return
         
@@ -262,28 +262,21 @@ class SystemState:
         last_reward_feeder = self.feeders[bat.last_reward_feeder_id]
         distance = self._calculate_3d_distance(bat_pos, last_reward_feeder.position)
         
-        print(f"🔄 Distance check for bat {bat.bat_id}: {distance:.3f}m from feeder {bat.last_reward_feeder_id}")
         
         # Check if bat is far enough away
-        if distance >= 0.5:  # reactivation_distance
-            print(f"📏 Bat {bat.bat_id} is far enough ({distance:.3f}m >= 0.5m)")
+        if distance >= last_reward_feeder.reactivation_distance:
             # Bat is far enough - check timing requirement
             if bat.distance_threshold_met_time is None:
                 # First time being far enough - record timestamp
-                print(f"⏱️ Starting reactivation timer for bat {bat.bat_id}")
                 bat.distance_threshold_met_time = current_time
             elif current_time - bat.distance_threshold_met_time >= 0.2:  # reactivation_time
                 # Been far enough for required time - reactivate!
-                print(f"⚡ REACTIVATING {bat.bat_id}: Been far enough for {current_time - bat.distance_threshold_met_time:.2f}s")
                 bat.activation_state = "ACTIVE"
                 bat.distance_threshold_met_time = None
             else:
                 time_remaining = 0.2 - (current_time - bat.distance_threshold_met_time)
-                print(f"⏳ Bat {bat.bat_id} waiting {time_remaining:.2f}s more to reactivate")
         else:
             # Bat moved closer - reset timing
-            if bat.distance_threshold_met_time is not None:
-                print(f"↩️ Bat {bat.bat_id} moved closer ({distance:.3f}m < 0.5m) - resetting timer")
             bat.distance_threshold_met_time = None
     
     def _calculate_3d_distance(self, pos1: tuple, pos2: tuple) -> float:
@@ -363,7 +356,8 @@ class SystemState:
                     'owner_bat_id': feeder.owner_bat_id,
                     'owner_since': feeder.owner_since,
                     'position': feeder.position,
-                    'activation_distance': feeder.activation_distance,
+                    'activation_radius': feeder.activation_radius,
+                    'reactivation_distance': feeder.reactivation_distance,
                     'duration_ms': feeder.duration_ms,
                     'motor_speed': feeder.motor_speed,
                     'beam_break_history': [

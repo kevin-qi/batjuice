@@ -71,7 +71,8 @@ class FeederController:
                 feeder_id=config.feeder_id,
                 name=f"Feeder_{config.feeder_id}",
                 position=(config.x_position, config.y_position, config.z_position),
-                activation_distance=config.activation_distance,
+                activation_radius=config.activation_radius,
+                reactivation_distance=config.reactivation_distance,
                 duration_ms=config.duration_ms,
                 motor_speed=config.speed
             )
@@ -148,11 +149,12 @@ class FeederController:
         if self.data_logger:
             self.data_logger.log_beam_break(feeder_id)
         
-        # Find triggering bat using 0.5m proximity threshold
+        # Find triggering bat using feeder's activation radius
         triggering_bat_id = self._find_closest_bat_to_feeder(feeder_id)
         
         if not triggering_bat_id:
-            print(f"⚠️  BEAM BREAK IGNORED: No bats within 0.5m of feeder {feeder_id}")
+            feeder = self.system_state.feeders[feeder_id]
+            print(f"⚠️  BEAM BREAK IGNORED: No bats within {feeder.activation_radius}m of feeder {feeder_id}")
             return
         
         # Calculate distance and position for history
@@ -205,13 +207,13 @@ class FeederController:
     def _find_closest_bat_to_feeder(self, feeder_id: int) -> Optional[str]:
         """
         Find the closest bat to a feeder that's within triggering distance.
-        Uses 0.5m threshold to determine if a bat could have triggered the beam break.
+        Uses feeder's activation_radius to determine if a bat could have triggered the beam break.
         
         Args:
             feeder_id: ID of the feeder
             
         Returns:
-            Optional[str]: bat_id of closest bat within 0.5m, or None
+            Optional[str]: bat_id of closest bat within activation_radius, or None
         """
         if feeder_id not in self.system_state.feeders:
             return None
@@ -220,8 +222,8 @@ class FeederController:
         feeder_pos = feeder.position
         current_time = time.time()
         
-        # Distance threshold for beam break triggering - must be close to feeder
-        BEAM_BREAK_THRESHOLD = 0.5  # meters - bat must be within this distance to trigger
+        # Use feeder's activation radius for beam break validation
+        beam_break_threshold = feeder.activation_radius
         
         closest_bat_id = None
         min_distance = float('inf')
@@ -240,7 +242,7 @@ class FeederController:
             distance = self._calculate_distance(bat_pos, feeder_pos)
             
             # CRITICAL: Only consider bats within beam break triggering distance
-            if distance <= BEAM_BREAK_THRESHOLD and distance < min_distance:
+            if distance <= beam_break_threshold and distance < min_distance:
                 min_distance = distance
                 closest_bat_id = bat_id
         
@@ -328,8 +330,10 @@ class FeederController:
                 y = kwargs.get('y_position', feeder.position[1])
                 z = kwargs.get('z_position', feeder.position[2])
                 feeder.position = (x, y, z)
-            if 'activation_distance' in kwargs:
-                feeder.activation_distance = kwargs['activation_distance']
+            if 'activation_radius' in kwargs:
+                feeder.activation_radius = kwargs['activation_radius']
+            if 'reactivation_distance' in kwargs:
+                feeder.reactivation_distance = kwargs['reactivation_distance']
             if 'active' in kwargs:
                 feeder.active = kwargs['active']
     
@@ -413,7 +417,7 @@ class FeederController:
             config.x_position = feeder.position[0]
             config.y_position = feeder.position[1]
             config.z_position = feeder.position[2]
-            config.activation_distance = feeder.activation_distance
+            config.activation_radius = feeder.activation_radius
             config.beam_break_count = len(feeder.beam_break_history)
             config.reward_delivery_count = len(feeder.reward_delivery_history)
             config.probability = 1.0  # Default probability for GUI compatibility

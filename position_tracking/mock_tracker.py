@@ -1,228 +1,211 @@
 """
-Mock position tracker for testing and development.
+Mock tracker that streams experimental data from flight_positions.npy.
+Provides realistic bat flight data for testing and development.
 """
 import time
-import random
-import math
-from typing import Optional, Callable, Dict, Any
-from .base_tracker import BaseTracker
+import threading
+import numpy as np
+from typing import Callable, Optional, Dict, Any
 from utils.data_structures import Position
 
 
-class MockTracker(BaseTracker):
-    """Mock position tracker that simulates bat movement"""
+class MockTracker:
+    """Mock tracker that streams real experimental data from flight_positions.npy at correct frame rate"""
     
     def __init__(self, config: Dict[str, Any], callback: Optional[Callable[[Position], None]] = None):
         """
         Initialize mock tracker
         
         Args:
-            config: Mock configuration dictionary
-            callback: Function to call when new position data is received
+            config: Mock configuration with data file path and bat settings
+            callback: Function to call when new position data is available
         """
-        super().__init__(callback)
-        self.config = config
-        self.num_bats = config.get('num_bats', 3)
-        self.flight_area = config.get('flight_area', {})
-        self.flight_speed = config.get('flight_speed', 50.0)  # cm/s
+        self.position_callback = callback
+        self.connected = False
+        self.running = False
+        self.stream_thread: Optional[threading.Thread] = None
         
-        # Initialize bat states
-        self.bats = {}
-        for i in range(self.num_bats):
-            bat_id = f"bat_{i:02d}"
-            tag_id = f"tag_{i:02d}"
+        # Get RTLS mock config
+        rtls_config = config.get("mock_rtls", {})
+        
+        # Load real experimental data
+        self.flight_data = None
+        self.bat_configs = []
+        self.current_indices = []
+        self.frame_rate = 120  # Default, will be updated based on RTLS backend
+        
+        self._load_flight_data(rtls_config)
+        self._setup_bats(rtls_config)
+    
+    def _load_flight_data(self, rtls_config: Dict[str, Any]):
+        """Load real experimental data from numpy file"""
+        try:
+            data_file = rtls_config.get("data_file", "data/flight_positions.npy")
+            self.flight_data = np.load(data_file)
+            print(f"Loaded real flight data: {self.flight_data.shape} positions")
             
-            # Start bats in different areas of the room
-            x_start = random.uniform(self.flight_area.get('x_min', -2.9), 
-                                   self.flight_area.get('x_max', 2.9))
-            y_start = random.uniform(self.flight_area.get('y_min', -2.6), 
-                                   self.flight_area.get('y_max', 2.6))
-            z_start = random.uniform(self.flight_area.get('z_min', 0.2), 
-                                   self.flight_area.get('z_max', 2.5))
+            # Validate data format
+            if len(self.flight_data.shape) != 2 or self.flight_data.shape[1] != 3:
+                raise ValueError(f"Expected flight data shape (N, 3), got {self.flight_data.shape}")
+                
+        except Exception as e:
+            print(f"Error loading flight data: {e}")
+            raise Exception(f"Could not load experimental data: {e}")
+    
+    def _setup_bats(self, rtls_config: Dict[str, Any]):
+        """Setup bat configurations for streaming"""
+        bat_count = rtls_config.get("bat_count", 2)
+        bat_ids = rtls_config.get("bat_ids", [f"Bat_{i+1:03d}" for i in range(bat_count)])
+        tag_ids = rtls_config.get("tag_ids", list(range(1, bat_count + 1)))
+        
+        self.bat_configs = []
+        self.current_indices = []
+        
+        for i in range(bat_count):
+            bat_id = bat_ids[i] if i < len(bat_ids) else f"Bat_{i+1:03d}"
+            tag_id = tag_ids[i] if i < len(tag_ids) else i + 1
             
-            # Start in random state for realistic behavior
-            is_moving = random.choice([True, False])
+            # For multiple bats: First bat uses original data, others use time-shifted versions
+            if i == 0:
+                positions = self.flight_data.copy()
+            else:
+                # Time-shift for other bats (different starting points in the trajectory)
+                shift = (i * len(self.flight_data) // bat_count) % len(self.flight_data)
+                positions = np.roll(self.flight_data, shift, axis=0)
             
-            self.bats[bat_id] = {
+            self.bat_configs.append({
+                'bat_id': bat_id,
                 'tag_id': tag_id,
-                'x': x_start,
-                'y': y_start,
-                'z': z_start,
-                'vx': 0,
-                'vy': 0,
-                'vz': 0,
-                'last_update': time.time(),
-                'target_speed': random.uniform(1.5, 3.0),  # Faster when moving
-                'is_moving': is_moving,
-                'state_start_time': time.time(),
-                'next_state_duration': self._get_state_duration(is_moving)
-            }
-            
-            # Set initial velocity based on state
-            if is_moving:
-                self._set_moving_velocity(self.bats[bat_id])
+                'positions': positions,
+                'total_frames': len(positions)
+            })
+            self.current_indices.append(0)
         
-        self.sampling_rate = 100  # Hz
-        self.update_interval = 1.0 / self.sampling_rate
+        print(f"Setup {len(self.bat_configs)} bats for real data streaming")
+    
+    def set_frame_rate(self, rtls_backend: str):
+        """Set frame rate based on RTLS backend"""
+        if rtls_backend == "cortex":
+            self.frame_rate = 120
+        elif rtls_backend == "ciholas":
+            self.frame_rate = 100
+        else:
+            self.frame_rate = 100  # Default
+        
+        print(f"Real data tracker frame rate set to {self.frame_rate} Hz for {rtls_backend}")
         
     def connect(self) -> bool:
-        """Mock connection always succeeds"""
-        print("Mock tracker connected")
+        """Connect to data stream"""
+        if len(self.bat_configs) == 0:
+            print("No bat configurations available")
+            return False
+        
+        self.connected = True
+        print(f"Real data tracker connected with {len(self.bat_configs)} bats")
         return True
     
     def disconnect(self):
-        """Mock disconnection"""
-        print("Mock tracker disconnected")
+        """Disconnect from data stream"""
+        self.stop_reading()
+        self.connected = False
+        print("Real data tracker disconnected")
     
-    def _fetch_data(self):
-        """Generate mock position data"""
-        current_time = time.time()
+    def start_reading(self):
+        """Start streaming real experimental data"""
+        if not self.connected or self.running:
+            return
         
-        for bat_id, bat_state in self.bats.items():
-            dt = current_time - bat_state['last_update']
+        self.running = True
+        self.stream_thread = threading.Thread(target=self._stream_loop, daemon=True)
+        self.stream_thread.start()
+        print(f"Started streaming real data at {self.frame_rate} Hz")
+    
+    def stop_reading(self):
+        """Stop streaming data"""
+        self.running = False
+        if self.stream_thread and self.stream_thread.is_alive():
+            self.stream_thread.join(timeout=1.0)
+        print("Stopped streaming real data")
+    
+    def start_tracking(self):
+        """Alias for start_reading to match expected interface"""
+        self.start_reading()
+    
+    def stop_tracking(self):
+        """Alias for stop_reading to match expected interface"""
+        self.stop_reading()
+    
+    def _stream_loop(self):
+        """Main streaming loop - stream the experimental data"""
+        frame_interval = 1.0 / self.frame_rate
+        
+        print("Mock tracker started")
+        
+        while self.running:
+            start_time = time.time()
             
-            if dt >= self.update_interval:
-                # Update position based on velocity
-                bat_state['x'] += bat_state['vx'] * dt
-                bat_state['y'] += bat_state['vy'] * dt
-                bat_state['z'] += bat_state['vz'] * dt
-                
-                # Update realistic behavior state
-                self._update_bat_state(bat_state)
-                
-                # Handle movement based on state
-                if bat_state['is_moving']:
-                    # Bounce off boundaries
-                    self._handle_boundaries(bat_state)
+            try:
+                # Stream data for each bat
+                for bat_idx, bat_config in enumerate(self.bat_configs):
+                    current_index = self.current_indices[bat_idx]
                     
-                    # Add some randomness to velocity
-                    self._update_velocity(bat_state)
-                else:
-                    # Stationary - slight drift only
-                    drift_mag = 0.02  # 2cm drift
-                    bat_state['x'] += random.uniform(-drift_mag, drift_mag)
-                    bat_state['y'] += random.uniform(-drift_mag, drift_mag)
-                    bat_state['z'] += random.uniform(-drift_mag, drift_mag)
+                    if current_index >= bat_config['total_frames']:
+                        # Reset to beginning (loop the data)
+                        self.current_indices[bat_idx] = 0
+                        current_index = 0
+                    
+                    # Get current position (real experimental data, no modifications)
+                    pos = bat_config['positions'][current_index]
+                    
+                    # Skip NaN positions
+                    if np.isnan(pos).any():
+                        # Advance to next frame and continue
+                        self.current_indices[bat_idx] += 1
+                        continue
+                    
+                    # Create position object
+                    position = Position(
+                        bat_id=bat_config['bat_id'],
+                        tag_id=bat_config['tag_id'],
+                        x=float(pos[0]),
+                        y=float(pos[1]),
+                        z=float(pos[2]),
+                        timestamp=time.time()
+                    )
+                    
+                    # Send to callback
+                    if self.position_callback:
+                        self.position_callback(position)
+                    
+                    # Advance to next frame
+                    self.current_indices[bat_idx] += 1
                 
-                # Create position object
-                position = Position(
-                    bat_id=bat_id,
-                    tag_id=bat_state['tag_id'],
-                    x=bat_state['x'],
-                    y=bat_state['y'],
-                    z=bat_state['z'],
-                    timestamp=current_time
-                )
+                # Maintain frame rate
+                elapsed = time.time() - start_time
+                sleep_time = max(0, frame_interval - elapsed)
+                time.sleep(sleep_time)
                 
-                self._add_position(position)
-                bat_state['last_update'] = current_time
+            except Exception as e:
+                import traceback
+                print(f"Error in mock tracker streaming in {__file__}:")
+                print(f"Error: {e}")
+                traceback.print_exc()
+                time.sleep(0.1)
         
-        time.sleep(0.001)  # Small sleep to prevent busy waiting
+        print("Mock tracker stopped")
     
-    def _get_state_duration(self, is_moving: bool) -> float:
-        """Get duration for current state"""
-        if is_moving:
-            return random.uniform(2.0, 4.0)  # Move for 2-4 seconds
-        else:
-            return random.uniform(5.0, 10.0)  # Stop for 5-10 seconds
-    
-    def _set_moving_velocity(self, bat_state: Dict):
-        """Set velocity for moving state"""
-        # Random direction
-        angle_xy = random.uniform(0, 2 * math.pi)
-        angle_z = random.uniform(-math.pi/6, math.pi/6)  # Mostly horizontal
+    def get_status(self) -> Dict[str, Any]:
+        """Get current streaming status"""
+        if not self.connected:
+            return {"status": "disconnected"}
         
-        speed = bat_state['target_speed']
-        bat_state['vx'] = speed * math.cos(angle_xy) * math.cos(angle_z)
-        bat_state['vy'] = speed * math.sin(angle_xy) * math.cos(angle_z)
-        bat_state['vz'] = speed * math.sin(angle_z)
-    
-    def _update_bat_state(self, bat_state: Dict):
-        """Update bat movement state (stationary vs moving)"""
-        current_time = time.time()
-        elapsed = current_time - bat_state['state_start_time']
+        total_frames = [bat['total_frames'] for bat in self.bat_configs]
+        current_progress = [idx / total for idx, total in zip(self.current_indices, total_frames)]
         
-        if elapsed >= bat_state['next_state_duration']:
-            # Switch state
-            bat_state['is_moving'] = not bat_state['is_moving']
-            bat_state['state_start_time'] = current_time
-            bat_state['next_state_duration'] = self._get_state_duration(bat_state['is_moving'])
-            
-            if bat_state['is_moving']:
-                # Start moving
-                self._set_moving_velocity(bat_state)
-            else:
-                # Stop moving
-                bat_state['vx'] = bat_state['vy'] = bat_state['vz'] = 0
-    
-    def _handle_boundaries(self, bat_state: Dict[str, float]):
-        """Handle boundary collisions with realistic bat behavior"""
-        x_min = self.flight_area.get('x_min', -2.9)
-        x_max = self.flight_area.get('x_max', 2.9)
-        y_min = self.flight_area.get('y_min', -2.6)
-        y_max = self.flight_area.get('y_max', 2.6)
-        z_min = self.flight_area.get('z_min', 0.2)
-        z_max = self.flight_area.get('z_max', 2.5)
-        
-        # Add small margin to avoid bats getting stuck at boundaries
-        margin = 0.05  # 5 cm margin
-        
-        if bat_state['x'] <= x_min + margin:
-            bat_state['vx'] = abs(bat_state['vx']) * 0.9  # Bounce away from wall
-            bat_state['x'] = x_min + margin
-            
-        if bat_state['x'] >= x_max - margin:
-            bat_state['vx'] = -abs(bat_state['vx']) * 0.9
-            bat_state['x'] = x_max - margin
-            
-        if bat_state['y'] <= y_min + margin:
-            bat_state['vy'] = abs(bat_state['vy']) * 0.9
-            bat_state['y'] = y_min + margin
-            
-        if bat_state['y'] >= y_max - margin:
-            bat_state['vy'] = -abs(bat_state['vy']) * 0.9
-            bat_state['y'] = y_max - margin
-            
-        if bat_state['z'] <= z_min + margin:
-            bat_state['vz'] = abs(bat_state['vz']) * 0.9
-            bat_state['z'] = z_min + margin
-            
-        if bat_state['z'] >= z_max - margin:
-            bat_state['vz'] = -abs(bat_state['vz']) * 0.9
-            bat_state['z'] = z_max - margin
-    
-    def _update_velocity(self, bat_state: Dict[str, float]):
-        """Add random changes to velocity to simulate natural bat flight patterns"""
-        # Realistic bat flight characteristics
-        accel_mag = 2.0  # m/s² - realistic acceleration for bats
-        
-        # Add some randomness to simulate natural flight variations
-        bat_state['vx'] += random.uniform(-accel_mag, accel_mag) * 0.1
-        bat_state['vy'] += random.uniform(-accel_mag, accel_mag) * 0.1
-        bat_state['vz'] += random.uniform(-accel_mag, accel_mag) * 0.05
-        
-        # Bats tend to maintain certain speed ranges
-        current_speed = math.sqrt(bat_state['vx']**2 + bat_state['vy']**2 + bat_state['vz']**2)
-        target_speed = bat_state['target_speed']
-        
-        # Gradually adjust towards target speed
-        if current_speed > 0:
-            speed_factor = target_speed / current_speed
-            # Apply gentle correction towards target speed
-            correction = 0.95 + 0.1 * speed_factor
-            bat_state['vx'] *= correction
-            bat_state['vy'] *= correction
-            bat_state['vz'] *= correction
-        
-        # Enforce maximum and minimum realistic speeds
-        final_speed = math.sqrt(bat_state['vx']**2 + bat_state['vy']**2 + bat_state['vz']**2)
-        if final_speed > 2.5:  # Max speed limit
-            factor = 2.5 / final_speed
-            bat_state['vx'] *= factor
-            bat_state['vy'] *= factor
-            bat_state['vz'] *= factor
-        elif final_speed < 0.3:  # Min speed to keep moving
-            factor = 0.3 / final_speed if final_speed > 0 else 1
-            bat_state['vx'] *= factor
-            bat_state['vy'] *= factor
-            bat_state['vz'] *= factor
+        return {
+            "status": "streaming" if self.running else "connected",
+            "bats": len(self.bat_configs),
+            "frame_rate": self.frame_rate,
+            "progress": current_progress,
+            "data_shape": self.flight_data.shape if self.flight_data is not None else None
+        }

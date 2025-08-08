@@ -1,15 +1,14 @@
 # Bat Feeder Control System
 
-A Python-based automated feeder control system for bat research experiments. This system integrates position tracking (Cortex MoCap or Ciholas UWB), Arduino-controlled feeders, and real-time monitoring through a comprehensive GUI.
+Arduino feeder control with RTLS position tracking for neuroscience experiments.
 
 ## Features
 
-- **Multi-Modal Position Tracking**: Support for Cortex MoCap (120 Hz) and Ciholas UWB (100 Hz) systems
-- **Arduino Integration**: Control up to 4 DC motor feeders with beam-break detection
-- **Intelligent Feeder Logic**: Distance-based activation with independent per-bat state management
-- **Comprehensive Logging**: Data logging, event logging, and TTL synchronization
-- **Real-Time GUI**: Live monitoring, flight path visualization, and manual controls
-- **Mock Mode**: Full functionality testing without hardware dependencies
+- Position tracking: Cortex MoCap and Ciholas UWB support
+- Arduino motor control with beam-break detection  
+- Modular task logic for flexible reward rules
+- Real-time GUI with flight visualization
+- Mock mode for testing without hardware
 
 ## Installation
 

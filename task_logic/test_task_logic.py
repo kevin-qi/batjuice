@@ -26,7 +26,8 @@ def test_basic_functionality():
         feeder_id=1,
         name="Feeder_1", 
         position=(1.1, 2.1, 1.5),
-        activation_distance=50.0
+        activation_radius=3.0,
+        reactivation_distance=2.0
     )
     
     # Test reward decision

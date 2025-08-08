@@ -114,7 +114,7 @@ class FeederPanel:
                 feeder_config.duration_ms,
                 feeder_config.speed,
                 f"{feeder_config.probability:.1f}",
-                f"{feeder_config.activation_distance:.1f}",
+                f"{feeder_config.activation_radius:.1f}",
                 ''  # actions placeholder
             ))
             
@@ -123,7 +123,7 @@ class FeederPanel:
                 'duration_ms': feeder_config.duration_ms,
                 'speed': feeder_config.speed,
                 'probability': feeder_config.probability,
-                'activation_distance': feeder_config.activation_distance
+                'activation_radius': feeder_config.activation_radius
             }
         
         self.feeder_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -326,16 +326,16 @@ class FeederPanel:
         ttk.Label(dist_frame, text="Min Distance (m):", width=15).pack(side=tk.LEFT)
         
         # Current value display
-        current_dist_label = ttk.Label(dist_frame, text=f"{feeder_config.activation_distance:.2f}", 
+        current_dist_label = ttk.Label(dist_frame, text=f"{feeder_config.activation_radius:.2f}", 
                                      width=10, font=('TkDefaultFont', 9, 'bold'))
         current_dist_label.pack(side=tk.LEFT, padx=(0, 5))
         self.feeder_vars[feeder_id]['current_dist_label'] = current_dist_label
         
         # Editable new value
-        dist_var = tk.DoubleVar(value=feeder_config.activation_distance)
+        dist_var = tk.DoubleVar(value=feeder_config.activation_radius)
         # Get max activation distance from GUI config
         gui_config = self.settings.get_gui_config()
-        max_distance = gui_config.get('max_activation_distance', 5.0)
+        max_distance = gui_config.get('max_activation_radius', 5.0)
         dist_spinbox = ttk.Spinbox(dist_frame, from_=0.1, to=max_distance, increment=0.05, width=10, textvariable=dist_var)
         dist_spinbox.pack(side=tk.LEFT, padx=(0, 5))
         dist_spinbox.bind('<Key>', lambda e: self._highlight_changes(feeder_id))
@@ -399,7 +399,7 @@ class FeederPanel:
                     changes.append("Probability")
                 if pending_speed != current_config.speed:
                     changes.append("Speed")
-                if abs(pending_dist - current_config.activation_distance) > 0.01:
+                if abs(pending_dist - current_config.activation_radius) > 0.01:
                     changes.append("Distance")
                 
                 # Update changes indicator
@@ -450,9 +450,9 @@ class FeederPanel:
                 changes_made.append(f"Speed: {current_config.speed} -> {new_speed}")
                 
             # Apply distance change
-            if abs(new_dist - current_config.activation_distance) > 0.01:
-                self.feeder_controller.update_feeder_config(feeder_id, activation_distance=new_dist)
-                changes_made.append(f"Distance: {current_config.activation_distance:.2f} -> {new_dist:.2f}")
+            if abs(new_dist - current_config.activation_radius) > 0.01:
+                self.feeder_controller.update_feeder_config(feeder_id, activation_radius=new_dist)
+                changes_made.append(f"Distance: {current_config.activation_radius:.2f} -> {new_dist:.2f}")
             
             if changes_made:
                 # Update current value displays
@@ -461,12 +461,12 @@ class FeederPanel:
                 self.feeder_vars[feeder_id]['current_duration_label'].config(text=str(updated_config.duration_ms))
                 self.feeder_vars[feeder_id]['current_prob_label'].config(text=f"{updated_config.probability:.1f}")
                 self.feeder_vars[feeder_id]['current_speed_label'].config(text=str(updated_config.speed))
-                self.feeder_vars[feeder_id]['current_dist_label'].config(text=f"{updated_config.activation_distance:.2f}")
+                self.feeder_vars[feeder_id]['current_dist_label'].config(text=f"{updated_config.activation_radius:.2f}")
                 
                 # Log the complete feeder state
                 self.event_logger.info(f"Feeder {feeder_id} config updated: {'; '.join(changes_made)}")
                 self.event_logger.info(f"Feeder {feeder_id} current state: Duration={updated_config.duration_ms}ms, "
-                                     f"Speed={updated_config.speed}, Probability={updated_config.probability:.2f}, Distance={updated_config.activation_distance:.2f}m")
+                                     f"Speed={updated_config.speed}, Probability={updated_config.probability:.2f}, Distance={updated_config.activation_radius:.2f}m")
                 
                 # Clear change indicators
                 self.feeder_vars[feeder_id]['changes_label'].config(text="")
@@ -555,7 +555,7 @@ class FeederPanel:
                     current_values[4] = config.duration_ms  # Duration
                     current_values[5] = config.speed  # Speed
                     current_values[6] = f"{config.probability:.1f}"  # Probability
-                    current_values[7] = f"{config.activation_distance:.1f}"  # Distance
+                    current_values[7] = f"{config.activation_radius:.1f}"  # Distance
                     
                     self.feeder_tree.item(item_id, values=current_values)
                     

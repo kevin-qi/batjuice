@@ -1,16 +1,18 @@
 """
-Ciholas UWB system integration (placeholder implementation).
+Ciholas UWB system integration with CDP (Ciholas Data Protocol) support.
+Directly interfaces with CDP data stream for real-time position tracking.
 """
 import time
 import socket
-import json
-from typing import Optional, Callable, Dict, Any
+import struct
+import threading
+from typing import Optional, Callable, Dict, Any, List
 from .base_tracker import BaseTracker
 from utils.data_structures import Position
 
 
 class CiholasTracker(BaseTracker):
-    """Ciholas UWB system tracker"""
+    """Ciholas UWB system tracker with CDP protocol support"""
     
     def __init__(self, config: Dict[str, Any], callback: Optional[Callable[[Position], None]] = None):
         """
@@ -22,123 +24,352 @@ class CiholasTracker(BaseTracker):
         """
         super().__init__(callback)
         self.config = config
-        self.host = config.get('host', 'localhost')
-        self.port = config.get('port', 8080)
-        self.sampling_rate = config.get('sampling_rate', 100)
-        self.update_interval = 1.0 / self.sampling_rate
         
+        # CDP network configuration
+        self.multicast_group = config.get('multicast_group', '239.255.76.67')
+        self.local_port = config.get('local_port', 7667)
+        self.timeout = config.get('timeout', 20)
+        
+        # Serial numbers for bat identification (ordered list)
+        self.serial_numbers = config.get('serial_numbers', [])
+        if not self.serial_numbers:
+            print("Warning: No serial numbers provided for Ciholas tracker")
+        
+        # Coordinate conversion settings
+        self.coordinate_scale = config.get('coordinate_scale', 10.0)  # Default: mm to cm
+        self.coordinate_units = config.get('coordinate_units', 'mm')
+        
+        # Tracking state
+        self.bat_states = {}  # Track enabled/disabled state for each bat
         self.socket: Optional[socket.socket] = None
-        
+        self._setup_bat_states()
+    
+    def _setup_bat_states(self):
+        """Initialize bat states for all serial numbers"""
+        for i, serial_num in enumerate(self.serial_numbers):
+            self.bat_states[i] = {
+                'serial_number': serial_num,
+                'enabled': True,
+                'last_position': None,
+                'last_update': 0.0
+            }
+    
     def connect(self) -> bool:
         """
-        Connect to Ciholas system
+        Connect to Ciholas CDP multicast stream
         
         Returns:
             bool: True if connection successful, False otherwise
         """
         try:
-            # This is a placeholder implementation
-            # In a real implementation, you would:
-            # 1. Connect to Ciholas RTLS API or streaming interface
-            # 2. Configure tag tracking
-            # 3. Set up data format parsing
+            print(f"Connecting to Ciholas CDP stream at {self.multicast_group}:{self.local_port}")
             
-            print(f"Attempting to connect to Ciholas at {self.host}:{self.port}")
+            # Create UDP socket for multicast
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             
-            # Simulate connection attempt
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(5.0)
+            # Enable port sharing (equivalent to MATLAB's EnablePortSharing)
+            if hasattr(socket, 'SO_REUSEPORT'):
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             
-            try:
-                # Try to connect to Ciholas system
-                self.socket.connect((self.host, self.port))
-                print(f"Ciholas tracker connected to {self.host}:{self.port}")
-                return True
-            except (socket.timeout, ConnectionRefusedError):
-                print(f"Failed to connect to Ciholas - connection refused or timeout")
+            # Bind to local port
+            self.socket.bind(('', self.local_port))
+            
+            # Join multicast group
+            mreq = struct.pack('4sl', socket.inet_aton(self.multicast_group), socket.INADDR_ANY)
+            self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            
+            # Set timeout
+            self.socket.settimeout(self.timeout)
+            
+            print(f"Ciholas tracker connected to CDP multicast {self.multicast_group}:{self.local_port}")
+            
+            # Flush any initial data in buffer
+            self._flush_buffer()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Failed to connect to Ciholas CDP stream: {e}")
+            if self.socket:
                 self.socket.close()
                 self.socket = None
-                return False
-                
-        except Exception as e:
-            print(f"Failed to connect to Ciholas: {e}")
             return False
     
     def disconnect(self):
-        """Disconnect from Ciholas system"""
+        """Disconnect from Ciholas CDP stream"""
         if self.socket:
+            try:
+                # Leave multicast group
+                mreq = struct.pack('4sl', socket.inet_aton(self.multicast_group), socket.INADDR_ANY)
+                self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
+            except (OSError, socket.error):
+                pass  # Ignore expected errors when leaving multicast group
+            
             self.socket.close()
             self.socket = None
         print("Ciholas tracker disconnected")
     
     def _fetch_data(self):
-        """Fetch data from Ciholas system"""
+        """Fetch and decode CDP data from Ciholas system"""
         if not self.socket:
             time.sleep(0.1)
             return
             
         try:
-            # This is a placeholder implementation
-            # In a real implementation, you would:
-            # 1. Receive data from Ciholas API (often JSON over HTTP/WebSocket)
-            # 2. Parse position data for multiple tags
-            # 3. Convert to Position objects
+            # Continuously look for position data packets (type 309)
+            position_data = self._decode_cdp_v3()
             
-            # Simulate waiting for data
-            self.socket.settimeout(self.update_interval)
-            
-            try:
-                # Receive data (placeholder)
-                data = self.socket.recv(1024)
-                if data:
-                    self._parse_ciholas_data(data)
-            except socket.timeout:
-                # No data received, continue
-                pass
+            if position_data:
+                sn, nt, x, y, z = position_data
+                self._process_position_data(sn, nt, x, y, z)
                 
+        except socket.timeout:
+            # No data received within timeout, continue
+            pass
         except Exception as e:
-            print(f"Error fetching Ciholas data: {e}")
+            print(f"Error fetching Ciholas CDP data: {e}")
             time.sleep(0.1)
     
-    def _parse_ciholas_data(self, data: bytes):
-        """Parse Ciholas data packet (placeholder)"""
-        # This is a placeholder implementation
-        # Real Ciholas integration would parse the actual API response format
-        
-        try:
-            # Simulate JSON data format
-            data_str = data.decode('utf-8')
+    def _flush_buffer(self):
+        """Flush any initial data in the UDP buffer"""
+        if not self.socket:
+            return
             
-            # Try to parse as JSON
+        try:
+            # Set a short timeout for flushing
+            original_timeout = self.socket.gettimeout()
+            self.socket.settimeout(0.1)
+            
+            # Read and discard packets until timeout
+            while True:
+                try:
+                    self.socket.recv(4096)
+                except socket.timeout:
+                    break
+            
+            # Restore original timeout
+            self.socket.settimeout(original_timeout)
+            
+        except Exception as e:
+            print(f"Error flushing buffer: {e}")
+    
+    def _decode_cdp_v3(self) -> Optional[tuple]:
+        """
+        Decode CDP v3 packets to extract position data.
+        
+        A CDP Packet is made up of a CDP Packet Header followed by a list of CDP Data Items.
+        We're only interested in position data (type 309).
+        
+        Returns:
+            tuple: (serial_number, network_time, x, y, z) if position packet found, None otherwise
+        """
+        if not self.socket:
+            return None
+            
+        packet_type = 0
+        
+        # Only get position V3 data (type 309)
+        while packet_type != 309:
             try:
-                json_data = json.loads(data_str)
+                # Read UDP packet
+                packet_data, addr = self.socket.recvfrom(4096)
                 
-                # Expected format might be:
-                # {
-                #   "tags": [
-                #     {"id": "tag_01", "x": 100.5, "y": 200.3, "z": 50.1, "timestamp": 1234567890},
-                #     {"id": "tag_02", "x": 150.2, "y": 180.7, "z": 45.8, "timestamp": 1234567890}
-                #   ]
-                # }
+                if len(packet_data) < 21:
+                    continue  # Packet too small
                 
-                if 'tags' in json_data:
-                    for tag_data in json_data['tags']:
-                        if all(key in tag_data for key in ['id', 'x', 'y', 'z']):
-                            position = Position(
-                                bat_id=f"bat_{tag_data['id']}",
-                                tag_id=tag_data['id'],
-                                x=float(tag_data['x']),
-                                y=float(tag_data['y']),
-                                z=float(tag_data['z']),
-                                timestamp=tag_data.get('timestamp', time.time())
-                            )
-                            
-                            self._add_position(position)
-                            
-            except json.JSONDecodeError:
-                # Not valid JSON, might be other format
-                pass
+                # Cut CDP Packet Header (first 20 bytes)
+                data = packet_data[20:]
                 
-        except UnicodeDecodeError:
-            # Binary data format
-            pass
+                if len(data) < 4:
+                    continue  # Not enough data for type and size
+                
+                # After decoding the header, look for CDP Data Items: Type, Size and Actual Data
+                packet_type = struct.unpack('<H', data[0:2])[0]  # uint16, little-endian
+                data = data[2:]
+                
+                size = struct.unpack('<H', data[0:2])[0]  # uint16, little-endian
+                data = data[2:]
+                
+                if len(data) < size:
+                    continue  # Not enough data for the specified size
+                
+                di_data = data[0:size]
+                
+                if packet_type == 309:
+                    # Position data packet found
+                    if len(di_data) < 24:  # Need at least 24 bytes for full position data
+                        continue
+                    
+                    # Extract position data
+                    sn_p = struct.unpack('<I', di_data[0:4])[0]  # uint32
+                    di_data = di_data[4:]
+                    
+                    nt_p = struct.unpack('<q', di_data[0:8])[0] * 15.65e-12  # int64 * scale factor
+                    di_data = di_data[8:]
+                    
+                    x_p = struct.unpack('<i', di_data[0:4])[0]  # int32
+                    di_data = di_data[4:]
+                    
+                    y_p = struct.unpack('<i', di_data[0:4])[0]  # int32
+                    di_data = di_data[4:]
+                    
+                    z_p = struct.unpack('<i', di_data[0:4])[0]  # int32
+                    
+                    return (sn_p, nt_p, x_p, y_p, z_p)
+                    
+            except socket.timeout:
+                # Timeout while waiting for data
+                return None
+            except struct.error as e:
+                print(f"Error unpacking CDP data: {e}")
+                continue
+            except Exception as e:
+                print(f"Error in CDP decoding: {e}")
+                continue
+        
+        return None
+    
+    def _process_position_data(self, serial_number: int, network_time: float, x: int, y: int, z: int):
+        """
+        Process decoded position data and create Position objects
+        
+        Args:
+            serial_number: Tag serial number
+            network_time: Network timestamp
+            x, y, z: Position coordinates (likely in mm or other units)
+        """
+        try:
+            # Find bat index from serial number
+            bat_index = self._get_bat_index_from_serial(serial_number)
+            
+            if bat_index is None:
+                # Unknown serial number, skip
+                return
+            
+            # Check if this bat is enabled
+            if not self.bat_states[bat_index]['enabled']:
+                return
+            
+            # Convert coordinates using configured scale
+            x_cm = float(x) / self.coordinate_scale
+            y_cm = float(y) / self.coordinate_scale
+            z_cm = float(z) / self.coordinate_scale
+            
+            # Create bat and tag IDs
+            bat_id = f"bat_{bat_index:02d}"
+            tag_id = f"tag_{serial_number}"
+            
+            # Create position object
+            position = Position(
+                bat_id=bat_id,
+                tag_id=tag_id,
+                x=x_cm,
+                y=y_cm,
+                z=z_cm,
+                timestamp=time.time()  # Use current time since network_time might need conversion
+            )
+            
+            # Update bat state
+            self.bat_states[bat_index]['last_position'] = position
+            self.bat_states[bat_index]['last_update'] = time.time()
+            
+            # Add to position queue and trigger callback
+            self._add_position(position)
+            
+        except Exception as e:
+            print(f"Error processing position data: {e}")
+    
+    def _get_bat_index_from_serial(self, serial_number: int) -> Optional[int]:
+        """
+        Get bat index from serial number
+        
+        Args:
+            serial_number: Tag serial number
+            
+        Returns:
+            int: Bat index if found, None otherwise
+        """
+        for bat_index, bat_state in self.bat_states.items():
+            if bat_state['serial_number'] == serial_number:
+                return bat_index
+        return None
+    
+    def is_bat_enabled(self, bat_index: int) -> bool:
+        """
+        Check if a bat is enabled for tracking
+        
+        Args:
+            bat_index: Index of the bat
+            
+        Returns:
+            bool: True if enabled, False otherwise
+        """
+        if bat_index in self.bat_states:
+            return self.bat_states[bat_index]['enabled']
+        return False
+    
+    def set_bat_enabled(self, bat_index: int, enabled: bool):
+        """
+        Enable or disable tracking for a specific bat
+        
+        Args:
+            bat_index: Index of the bat
+            enabled: True to enable, False to disable
+        """
+        if bat_index in self.bat_states:
+            self.bat_states[bat_index]['enabled'] = enabled
+            print(f"Bat {bat_index} tracking {'enabled' if enabled else 'disabled'}")
+    
+    def get_closest_bat_to_feeder(self, feeder_position: tuple) -> Optional[int]:
+        """
+        Find the closest enabled bat to a feeder position
+        
+        Args:
+            feeder_position: (x, y, z) position of the feeder
+            
+        Returns:
+            int: Bat index of closest bat, None if no enabled bats found
+        """
+        closest_bat = None
+        min_distance = float('inf')
+        
+        fx, fy, fz = feeder_position
+        
+        for bat_index, bat_state in self.bat_states.items():
+            if not bat_state['enabled'] or not bat_state['last_position']:
+                continue
+            
+            pos = bat_state['last_position']
+            
+            # Calculate 3D distance
+            distance = ((pos.x - fx) ** 2 + (pos.y - fy) ** 2 + (pos.z - fz) ** 2) ** 0.5
+            
+            if distance < min_distance:
+                min_distance = distance
+                closest_bat = bat_index
+        
+        return closest_bat
+    
+    def get_bat_states(self) -> Dict[int, Dict]:
+        """
+        Get current state of all bats
+        
+        Returns:
+            dict: Dictionary of bat states
+        """
+        return self.bat_states.copy()
+    
+    def get_bat_position(self, bat_index: int) -> Optional[Position]:
+        """
+        Get the last known position of a specific bat
+        
+        Args:
+            bat_index: Index of the bat
+            
+        Returns:
+            Position: Last known position, None if not available
+        """
+        if bat_index in self.bat_states:
+            return self.bat_states[bat_index]['last_position']
+        return None

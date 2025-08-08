@@ -36,76 +36,56 @@ class TaskLogic:
         self._apply_config()
     
     def _load_config(self):
-        """Load configuration from settings object"""
-        if self.settings:
-            self.config = self.settings.config.get("task_logic", {})
-        else:
-            # Fallback: try to load user_config.json directly
-            try:
-                with open("config/user_config.json", 'r') as f:
-                    user_config = json.load(f)
-                    self.config = user_config.get("task_logic", {})
-                    print("Loaded task logic config directly from user_config.json")
-            except Exception as e:
-                print(f"Error loading user_config.json directly: {e}")
-                self.config = {}
-        
-        # Ensure all required keys exist with fallback to user_config.json defaults
-        required_keys = {
-            "reactivation_distance": 2.0,
+        """Load configuration from settings object - now using individual feeder parameters"""
+        # Only load global timing parameters, distances come from individual feeders
+        self.config = {
             "reactivation_time": 0.2,
-            "feeder_ownership_distance": 0.5,
             "position_timeout": 1.0
         }
         
-        for key, default_value in required_keys.items():
-            if key not in self.config:
-                print(f"Warning: Missing '{key}' in task_logic config, using default: {default_value}")
-                self.config[key] = default_value
+        if self.settings:
+            # Try to get timing parameters from any remaining global config
+            global_config = self.settings.config
+            if "reactivation_time" in global_config:
+                self.config["reactivation_time"] = global_config["reactivation_time"]
+            if "position_timeout" in global_config:
+                self.config["position_timeout"] = global_config["position_timeout"]
         
-        print(f"Loaded task logic config: {self.config}")
+        print(f"Loaded global task logic config: {self.config}")
     
     def _apply_config(self):
         """Apply loaded configuration to instance variables"""
-        self.reactivation_distance = self.config["reactivation_distance"]
         self.reactivation_time = self.config["reactivation_time"]
-        self.feeder_ownership_distance = self.config["feeder_ownership_distance"]
         self.position_timeout = self.config["position_timeout"]
         
-        print(f"Applied task logic config - reactivation_distance: {self.reactivation_distance}m, "
-              f"reactivation_time: {self.reactivation_time}s, "
-              f"feeder_ownership_distance: {self.feeder_ownership_distance}m")
+        print(f"Applied task logic config - reactivation_time: {self.reactivation_time}s, "
+              f"position_timeout: {self.position_timeout}s"
+              f" (distance parameters now come from individual feeders)")
     
     def save_config(self):
-        """Save current configuration to user_config.json"""
+        """Save current configuration to user_config.json - distance params now stored per feeder"""
         try:
-            # Update user_config.json with current task logic values
+            # Only save global timing parameters since distance parameters are now per-feeder
             config_file = "config/user_config.json"
             
             # Load the full user config
             with open(config_file, 'r') as f:
                 user_config = json.load(f)
             
-            # Update task_logic section with current values
-            if "task_logic" not in user_config:
-                user_config["task_logic"] = {}
-            
-            user_config["task_logic"].update({
-                "reactivation_distance": self.reactivation_distance,
-                "reactivation_time": self.reactivation_time,
-                "feeder_ownership_distance": self.feeder_ownership_distance,
-                "position_timeout": self.position_timeout
-            })
+            # Update global timing parameters
+            user_config["reactivation_time"] = self.reactivation_time
+            user_config["position_timeout"] = self.position_timeout
             
             # Save back to file
             with open(config_file, 'w') as f:
                 json.dump(user_config, f, indent=2)
             
-            print(f"Saved task logic config to {config_file}")
+            print(f"Saved global task logic config to {config_file}")
             
             # Update settings object if available
             if self.settings:
-                self.settings.config["task_logic"] = user_config["task_logic"]
+                self.settings.config["reactivation_time"] = self.reactivation_time
+                self.settings.config["position_timeout"] = self.position_timeout
             
         except Exception as e:
             print(f"Error saving task logic config to user_config.json: {e}")
@@ -115,10 +95,11 @@ class TaskLogic:
         Update task logic parameters and save to user_config.json.
         
         Available parameters:
-            reactivation_distance: Distance bat must fly to reactivate (meters)
             reactivation_time: Time bat must be far away to reactivate (seconds)  
-            feeder_ownership_distance: Distance owner must move to release feeder (meters)
             position_timeout: Max age of position data (seconds)
+            
+        Note: Distance parameters (activation_radius, reactivation_distance) are now 
+              configured per feeder and should be updated via feeder configuration.
         """
         updated_params = []
         
@@ -138,12 +119,11 @@ class TaskLogic:
         return "No valid parameters updated"
     
     def get_parameters(self) -> Dict[str, Any]:
-        """Get current task logic parameters"""
+        """Get current task logic parameters - distance parameters now come from feeders"""
         return {
-            'reactivation_distance': self.reactivation_distance,
             'reactivation_time': self.reactivation_time, 
-            'feeder_ownership_distance': self.feeder_ownership_distance,
-            'position_timeout': self.position_timeout
+            'position_timeout': self.position_timeout,
+            'note': 'Distance parameters (activation_radius, reactivation_distance) are now configured per feeder'
         }
     
     def reload_config(self):
@@ -189,8 +169,13 @@ class TaskLogic:
         
         # Check if bat is in ACTIVE state (can receive rewards)
         if bat.activation_state != "ACTIVE":
+            # Get reactivation distance from the feeder that last gave reward (if any)
+            last_feeder_reactivation_dist = "required distance"
+            if bat.last_reward_feeder_id is not None and bat.last_reward_feeder_id in system_state.feeders:
+                last_feeder_reactivation_dist = f"{system_state.feeders[bat.last_reward_feeder_id].reactivation_distance}m"
+            
             return False, (f"Bat {triggering_bat_id} is INACTIVE - must fly "
-                         f"{self.reactivation_distance}m away for {self.reactivation_time}s")
+                         f"{last_feeder_reactivation_dist} away for {self.reactivation_time}s")
         
         # Check feeder ownership (multi-bat scenario)
         if not self._check_feeder_ownership(feeder, bat, system_state, current_time):
@@ -223,8 +208,8 @@ class TaskLogic:
         last_reward_feeder = feeders[bat.last_reward_feeder_id]
         distance = self._calculate_3d_distance(bat_pos, last_reward_feeder.position)
         
-        # Check if bat is far enough away using CURRENT config value
-        if distance >= self.reactivation_distance:
+        # Check if bat is far enough away using feeder's reactivation distance
+        if distance >= last_reward_feeder.reactivation_distance:
             # Bat is far enough - check timing requirement
             if bat.distance_threshold_met_time is None:
                 # First time being far enough - record timestamp
@@ -234,7 +219,7 @@ class TaskLogic:
                 bat.activation_state = "ACTIVE"
                 bat.distance_threshold_met_time = None
                 print(f"Bat {bat.bat_id} reactivated after flying {distance:.2f}m away "
-                      f"(threshold: {self.reactivation_distance}m)")
+                      f"(threshold: {last_reward_feeder.reactivation_distance}m)")
         else:
             # Bat moved closer - reset timing
             bat.distance_threshold_met_time = None
@@ -273,11 +258,11 @@ class TaskLogic:
             # Owner position too old - keep current ownership
             return False
         
-        # Calculate distance from owner to feeder using CURRENT config value
+        # Calculate distance from owner to feeder using feeder's activation_radius
         owner_pos = owner_bat.last_position[:3]
         distance = self._calculate_3d_distance(owner_pos, feeder.position)
         
-        if distance >= self.feeder_ownership_distance:
+        if distance >= feeder.activation_radius:
             # Owner has moved far enough away - transfer ownership
             feeder.owner_bat_id = triggering_bat.bat_id
             feeder.owner_since = current_time
@@ -300,8 +285,9 @@ class TaskLogic:
         bat.last_reward_time = current_time
         bat.distance_threshold_met_time = None  # Reset distance timing
         
+        feeder = system_state.feeders[feeder_id]
         print(f"Bat {bat_id} set to INACTIVE after reward, must fly "
-              f"{self.reactivation_distance}m away for {self.reactivation_time}s to reactivate")
+              f"{feeder.reactivation_distance}m away for {self.reactivation_time}s to reactivate")
     
     def _calculate_3d_distance(self, pos1: Tuple, pos2: Tuple) -> float:
         """Calculate 3D Euclidean distance between two positions"""

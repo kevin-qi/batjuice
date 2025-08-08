@@ -119,14 +119,26 @@ class MockArduino:
     
     def get_beam_breaks(self) -> list[int]:
         """
-        Get all beam break events from queue (empty in simple mock)
+        Get all beam break events from queue
         
         Returns:
-            list[int]: Empty list (no beam breaks simulated)
+            list[int]: List of feeder IDs with beam break events
         """
-        # In simple mock mode, we don't simulate beam breaks
-        # User can manually trigger these if needed for testing
-        return []
+        beam_breaks = []
+        while not self.beam_break_queue.empty():
+            try:
+                feeder_id = self.beam_break_queue.get_nowait()
+                beam_breaks.append(feeder_id)
+                self._log_communication("EVENT", f"BEAM_BREAK:{feeder_id}")
+            except queue.Empty:
+                break
+        return beam_breaks
+    
+    def simulate_beam_break(self, feeder_id: int):
+        """Simulate a beam break event for testing"""
+        self.beam_break_queue.put(feeder_id)
+        print(f"Mock Arduino: Simulated beam break on feeder {feeder_id}")
+        self._log_communication("SIM", f"BEAM_BREAK:{feeder_id}")
     
     def get_ttl_events(self) -> list[TTLEvent]:
         """

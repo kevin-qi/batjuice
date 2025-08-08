@@ -181,7 +181,7 @@ class FlightDisplay3D:
                         fontsize=10, fontweight='bold')
             
             # Draw activation zone (sphere)
-            activation_radius = feeder.activation_distance
+            activation_radius = feeder.activation_radius
             u = np.linspace(0, 2 * np.pi, 20)
             v = np.linspace(0, np.pi, 20)
             x_sphere = x + activation_radius * np.outer(np.cos(u), np.sin(v))

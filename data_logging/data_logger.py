@@ -210,6 +210,10 @@ class DataLogger:
                          change_description: str = ""):
         """Log configuration changes"""
         try:
+            # Ensure config_file is set
+            if not hasattr(self, 'config_file') or not self.config_file:
+                # Create default config file path if not initialized
+                self.config_file = os.path.join(self.data_dir, f'{self.session_id}_config.json')
             config_data = {
                 'timestamp': time.time(),
                 'session_id': self.session_id,
@@ -225,7 +229,7 @@ class DataLogger:
                     'x_position': config.x_position,
                     'y_position': config.y_position,
                     'z_position': config.z_position,
-                    'activation_distance': config.activation_distance
+                    'activation_radius': config.activation_radius
                 })
             
             # Append to config file

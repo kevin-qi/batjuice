@@ -7,16 +7,16 @@ import sys
 import time
 from config.settings import Settings
 from position_tracking.mock_tracker import MockTracker
-from position_tracking.real_data_tracker import RealDataTracker
 from position_tracking.cortex_tracker import CortexTracker
 from position_tracking.ciholas_tracker import CiholasTracker
 from hardware.arduino_controller import ArduinoController
 from hardware.mock_arduino import MockArduino
-from feeder_logic.feeder_manager import FeederManager
+from controller.feeder_controller import FeederController
 from data_logging.data_logger import DataLogger
 from data_logging.event_logger import EventLogger
 from gui.main_window import MainWindow
 from utils.data_structures import TrackingSystem
+from task_logic.task_logic import initialize_task_logic
 
 
 class BatFeederSystem:
@@ -36,6 +36,9 @@ class BatFeederSystem:
         # Load configuration
         self.settings = Settings()
         
+        # Initialize task logic with settings
+        initialize_task_logic(self.settings)
+        
         # Initialize logging
         self.data_logger = DataLogger(self.settings.get_logging_config())
         self.event_logger = EventLogger(self.settings.get_logging_config())
@@ -43,7 +46,7 @@ class BatFeederSystem:
         # Initialize components
         self.position_tracker = None
         self.arduino_controller = None
-        self.feeder_manager = None
+        self.feeder_controller = None
         self.gui = None
         
         # System state
@@ -68,7 +71,7 @@ class BatFeederSystem:
                 return False
             
             # Initialize feeder manager
-            if not self._init_feeder_manager():
+            if not self._init_feeder_controller():
                 return False
             
             # Initialize GUI
@@ -90,14 +93,14 @@ class BatFeederSystem:
             if self.mock_rtls:
                 # Use real experimental data for mock mode
                 mock_config = self.settings.get_mock_config()
-                self.position_tracker = RealDataTracker(
+                self.position_tracker = MockTracker(
                     mock_config,
                     callback=self._on_position_update
                 )
                 # Set frame rate based on configured RTLS backend
                 rtls_backend = self.settings.get_rtls_backend()
                 self.position_tracker.set_frame_rate(rtls_backend)
-                print(f"Using real experimental data mock (simulating {rtls_backend})")
+                print(f"Using mock tracker with real experimental data (simulating {rtls_backend})")
             else:
                 tracking_system = self.settings.get_tracking_system()
                 
@@ -115,7 +118,7 @@ class BatFeederSystem:
                     )
                     print("Using Ciholas UWB system")
                 else:
-                    # Fallback to old synthetic mock for unknown systems
+                    # Fallback to mock tracker for unknown systems
                     self.position_tracker = MockTracker(
                         self.settings.get_mock_config(),
                         callback=self._on_position_update
@@ -161,12 +164,12 @@ class BatFeederSystem:
             self.event_logger.error(f"Arduino initialization failed: {e}")
             return False
     
-    def _init_feeder_manager(self) -> bool:
-        """Initialize feeder manager"""
+    def _init_feeder_controller(self) -> bool:
+        """Initialize feeder controller"""
         try:
             feeder_configs = self.settings.get_feeder_configs()
             
-            self.feeder_manager = FeederManager(
+            self.feeder_controller = FeederController(
                 feeder_configs,
                 self.arduino_controller,
                 reward_callback=self._on_reward_delivery,
@@ -186,7 +189,7 @@ class BatFeederSystem:
         """Initialize GUI"""
         try:
             self.gui = MainWindow(
-                self.feeder_manager,
+                self.feeder_controller,
                 self.settings,
                 self.data_logger,
                 self.event_logger
@@ -223,7 +226,7 @@ class BatFeederSystem:
             self.arduino_controller.start_reading()
             
             # Start feeder manager
-            self.feeder_manager.start()
+            self.feeder_controller.start()
             
             self.event_logger.info("System components started successfully")
             
@@ -240,8 +243,8 @@ class BatFeederSystem:
         
         try:
             # Stop components in reverse order
-            if self.feeder_manager:
-                self.feeder_manager.stop()
+            if self.feeder_controller:
+                self.feeder_controller.stop()
             
             if self.arduino_controller:
                 self.arduino_controller.stop_reading()
@@ -275,11 +278,11 @@ class BatFeederSystem:
             # Position logging disabled - not needed for analysis
             
             # Update feeder manager
-            self.feeder_manager.update_position(position)
+            self.feeder_controller.update_position(position)
             
             # Update GUI if available
             if self.gui:
-                bat_states = self.feeder_manager.get_bat_states()
+                bat_states = self.feeder_controller.get_bat_states()
                 self.gui.update_flight_display(bat_states)
                 
         except Exception as e:

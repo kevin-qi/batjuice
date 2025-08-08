@@ -31,8 +31,7 @@ class Settings:
                 print(f"Loaded configuration from {self.config_file}")
                 return config
         except Exception as e:
-            print(f"Error loading config from {self.config_file}: {e}")
-            return self._get_default_config()
+            raise RuntimeError(f"Failed to load configuration from {self.config_file}: {e}. Fix the configuration file - no default fallback available.")
     
     def load_mock_config(self) -> Dict[str, Any]:
         """Load mock configuration when needed"""
@@ -42,43 +41,9 @@ class Settings:
                     self.mock_config = json.load(f)
                     print(f"Loaded mock configuration from {self.mock_config_file}")
             except Exception as e:
-                print(f"Error loading mock config from {self.mock_config_file}: {e}")
-                self.mock_config = self._get_default_mock_config()
+                raise RuntimeError(f"Failed to load mock configuration from {self.mock_config_file}: {e}. Fix the mock configuration file - no default fallback available.")
         return self.mock_config
     
-    def _get_default_config(self) -> Dict[str, Any]:
-        """Return default configuration if file loading fails"""
-        return {
-            "rtls_system": {"backend": "cortex"},
-            "cortex": {"server_ip": "127.0.0.1", "server_port": 1001, "timeout": 5.0, "frame_rate": 120},
-            "ciholas": {"server_ip": "192.168.1.100", "server_port": 7667, "timeout": 5.0, "frame_rate": 100},
-            "room": {
-                "boundaries": {"x_min": 0.0, "x_max": 5.0, "y_min": 0.0, "y_max": 3.0, "z_min": 0.0, "z_max": 2.5},
-                "units": "meters"
-            },
-            "feeders": [
-                {"id": 0, "position": [1.0, 1.0, 1.0], "activation_distance": 0.8, "duration_ms": 500, "probability": 1.0},
-                {"id": 1, "position": [4.0, 1.0, 1.0], "activation_distance": 0.8, "duration_ms": 500, "probability": 1.0}
-            ],
-            "arduino": {"port": "COM3", "baudrate": 9600, "timeout": 1.0},
-            "gui": {"update_rate_hz": 30, "plot_update_rate_hz": 10, "max_flight_points": 10000},
-            "logging": {"data_directory": "data", "session_prefix": "BatFeeder", "log_level": "INFO"}
-        }
-    
-    def _get_default_mock_config(self) -> Dict[str, Any]:
-        """Return default mock configuration if file loading fails"""
-        return {
-            "mock_rtls": {
-                "data_file": "data/flight_positions.npy",
-                "bat_count": 2,
-                "bat_ids": ["Bat_001", "Bat_002"],
-                "tag_ids": [1, 2],
-                "loop_data": True
-            },
-            "mock_arduino": {
-                "log_file": "mock_arduino.txt"
-            }
-        }
     
     # Updated getter methods for new config structure
     def get_rtls_backend(self) -> str:
@@ -121,7 +86,8 @@ class Settings:
                 x_position=feeder.get("position", [0, 0, 0])[0],
                 y_position=feeder.get("position", [0, 0, 0])[1], 
                 z_position=feeder.get("position", [0, 0, 0])[2],
-                activation_distance=feeder.get("activation_distance", 0.8),
+                activation_radius=feeder.get("activation_radius", 3.0),
+                reactivation_distance=feeder.get("reactivation_distance", 2.0),
                 duration_ms=feeder.get("duration_ms", 500),
                 speed=feeder.get("speed", 255),
                 probability=feeder.get("probability", 1.0)
@@ -145,6 +111,10 @@ class Settings:
     def get_session_config(self) -> Dict[str, Any]:
         """Get default session configuration"""
         return self.config.get("session", {})
+    
+    def get_task_logic_config(self) -> Dict[str, Any]:
+        """Get task logic configuration"""
+        return self.config.get("task_logic", {})
     
     # Mock configuration getters (only when needed)
     def get_mock_config(self) -> Dict[str, Any]:

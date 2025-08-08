@@ -67,11 +67,26 @@ class ArduinoController:
             if "Access is denied" in str(e):
                 print(f"✗ Arduino connection failed: {port} is in use by another program")
                 print("  Please close Arduino IDE, serial monitor, or other programs using this port")
+            elif "No such file or directory" in str(e) or "[Errno 2]" in str(e):
+                print(f"✗ Arduino connection failed: {port} not found")
+                print("  Available ports: ", end="")
+                try:
+                    from serial.tools import list_ports
+                    ports = [p.device for p in list_ports.comports()]
+                    if ports:
+                        print(", ".join(ports))
+                        print(f"  Try updating config to use one of: {ports}")
+                    else:
+                        print("No serial ports found")
+                except ImportError:
+                    print("Cannot list available ports")
             else:
                 print(f"✗ Arduino connection failed: {e}")
             return False
         except Exception as e:
             print(f"✗ Unexpected error connecting to Arduino: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def disconnect(self):
