@@ -11,16 +11,23 @@ from typing import Optional
 class BatPanel:
     """Panel for monitoring bat states"""
     
-    def __init__(self, parent, feeder_manager):
+    def __init__(self, parent, feeder_controller, settings=None):
         """
         Initialize bat panel
         
         Args:
             parent: Parent tkinter widget
             feeder_manager: FeederManager instance
+            settings: Settings instance for configuration
         """
         self.parent = parent
-        self.feeder_manager = feeder_manager
+        self.feeder_controller = feeder_controller
+        self.settings = settings
+        
+        # Load configuration
+        gui_config = settings.get_gui_config() if settings else {}
+        self.update_interval = gui_config.get('bat_panel_update_interval', 2.0)
+        self.position_timeout = gui_config.get('position_timeout_gui', 5.0)
         
         # Update control
         self.running = False
@@ -32,13 +39,14 @@ class BatPanel:
     def _setup_panel(self):
         """Setup the bat panel layout"""
         # Create treeview for bat data with per-feeder stats
-        columns = ('Bat ID', 'Tag ID', 'Position', 'Total Flights', 'Total Rewards', 'Flights/Feeder', 'Rewards/Feeder', 'Last Update')
+        columns = ('Bat ID', 'Tag ID', 'Status', 'Position', 'Total Flights', 'Total Rewards', 'Flights/Feeder', 'Rewards/Feeder', 'Last Update')
         self.bat_tree = ttk.Treeview(self.parent, columns=columns, show='headings', height=8)
         
         # Configure columns
         column_widths = {
             'Bat ID': 60,
             'Tag ID': 50,
+            'Status': 80,
             'Position': 120,
             'Total Flights': 70,
             'Total Rewards': 70,
@@ -98,15 +106,18 @@ class BatPanel:
                 # Schedule update on main thread
                 if self.parent.winfo_exists():
                     self.parent.after_idle(self._update_display)
-                time.sleep(2.0)  # Update every 2 seconds
+                time.sleep(self.update_interval)
             except Exception as e:
-                print(f"Bat panel update error: {e}")
+                import traceback
+                print(f"Bat panel update error in {__file__}:")
+                print(f"Error: {e}")
+                traceback.print_exc()
                 time.sleep(1.0)
     
     def _update_display(self):
         """Update bat display (called on main thread)"""
         try:
-            bat_states = self.feeder_manager.get_bat_states()
+            bat_states = self.feeder_controller.get_bat_states()
             
             # Clear existing items
             for item in self.bat_tree.get_children():
@@ -133,18 +144,27 @@ class BatPanel:
                 
                 # Determine if bat is active (recent position update)
                 is_active = (bat_state.last_position and 
-                           time.time() - bat_state.last_position.timestamp < 5.0)
+                           time.time() - bat_state.last_position.timestamp < self.position_timeout)
                 
                 if is_active:
                     active_bats += 1
+                
+                # Format activation status
+                activation_status = getattr(bat_state, 'activation_state', 'UNKNOWN')
+                if activation_status == 'INACTIVE':
+                    last_reward_feeder = getattr(bat_state, 'last_reward_feeder_id', None)
+                    status_str = f"INACTIVE (F{last_reward_feeder})" if last_reward_feeder else "INACTIVE"
+                else:
+                    status_str = activation_status
                 
                 # Get per-feeder statistics
                 flights_per_feeder, rewards_per_feeder = bat_state.get_feeder_stats_string()
                 
                 # Add to tree
-                self.bat_tree.insert('', 'end', values=(
+                item = self.bat_tree.insert('', 'end', values=(
                     bat_state.bat_id,
                     bat_state.tag_id,
+                    status_str,
                     position_str,
                     bat_state.flight_count,
                     bat_state.reward_count,
@@ -152,6 +172,16 @@ class BatPanel:
                     rewards_per_feeder,
                     last_update
                 ))
+                
+                # Color-code INACTIVE bats
+                if activation_status == 'INACTIVE':
+                    self.bat_tree.set(item, 'Status', status_str)
+                    # Make INACTIVE bats slightly grayed out
+                    try:
+                        self.bat_tree.item(item, tags=('inactive',))
+                        self.bat_tree.tag_configure('inactive', foreground='gray')
+                    except:
+                        pass  # Ignore styling errors
                 
                 total_flights += bat_state.flight_count
                 total_rewards += bat_state.reward_count
@@ -163,4 +193,7 @@ class BatPanel:
             self.total_rewards_label.config(text=f"Total Rewards: {total_rewards}")
             
         except Exception as e:
-            print(f"Error updating bat display: {e}")
+            import traceback
+            print(f"Error updating bat display in {__file__}:")
+            print(f"Error: {e}")
+            traceback.print_exc()

@@ -11,7 +11,7 @@ from typing import Optional
 class FeederPanel:
     """Panel for controlling and monitoring feeders"""
     
-    def __init__(self, parent, feeder_manager, settings, event_logger):
+    def __init__(self, parent, feeder_controller, settings, event_logger):
         """
         Initialize feeder panel
         
@@ -22,7 +22,7 @@ class FeederPanel:
             event_logger: EventLogger instance
         """
         self.parent = parent
-        self.feeder_manager = feeder_manager
+        self.feeder_controller = feeder_controller
         self.settings = settings
         self.event_logger = event_logger
         
@@ -82,7 +82,7 @@ class FeederPanel:
     def _on_dynamic_position_changed(self):
         """Handle dynamic position checkbox change"""
         enabled = self.dynamic_position_var.get()
-        self.feeder_manager.set_dynamic_position_enabled(enabled)
+        # Note: Dynamic position updating is now handled in task logic
         print(f"Dynamic feeder position updates: {'enabled' if enabled else 'disabled'}")
     
     def _create_feeder_table(self, parent, feeder_configs):
@@ -156,16 +156,33 @@ class FeederPanel:
         manual_frame = ttk.LabelFrame(controls_frame, text="Manual Control", padding=5)
         manual_frame.pack(side=tk.RIGHT)
         
-        # Manual reward buttons
+        # Manual reward buttons (top row)
+        reward_frame = ttk.Frame(manual_frame)
+        reward_frame.pack()
+        ttk.Label(reward_frame, text="Reward:").pack(side=tk.LEFT, padx=(0, 5))
         for feeder_config in feeder_configs:
             feeder_id = feeder_config.feeder_id
             reward_btn = ttk.Button(
-                manual_frame,
+                reward_frame,
                 text=f"F{feeder_id}",
                 width=4,
                 command=lambda fid=feeder_id: self._manual_reward(fid)
             )
             reward_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Beam break simulation buttons (bottom row)
+        beam_frame = ttk.Frame(manual_frame)
+        beam_frame.pack(pady=(5, 0))
+        ttk.Label(beam_frame, text="Beam:").pack(side=tk.LEFT, padx=(0, 5))
+        for feeder_config in feeder_configs:
+            feeder_id = feeder_config.feeder_id
+            beam_btn = ttk.Button(
+                beam_frame,
+                text=f"F{feeder_id}",
+                width=4,
+                command=lambda fid=feeder_id: self._simulate_beam_break(fid)
+            )
+            beam_btn.pack(side=tk.LEFT, padx=2)
     
     def _apply_quick_config(self):
         """Apply quick configuration to selected feeders"""
@@ -182,7 +199,7 @@ class FeederPanel:
                 feeder_id = int(item_id.split('_')[1])
                 if feeder_id in self.feeder_vars:
                     # Update feeder manager
-                    self.feeder_manager.update_feeder_config(feeder_id, duration_ms=duration, speed=speed)
+                    self.feeder_controller.update_feeder_config(feeder_id, duration_ms=duration, speed=speed)
                     
                     # Update tree display
                     current_values = list(self.feeder_tree.item(item_id)['values'])
@@ -316,7 +333,10 @@ class FeederPanel:
         
         # Editable new value
         dist_var = tk.DoubleVar(value=feeder_config.activation_distance)
-        dist_spinbox = ttk.Spinbox(dist_frame, from_=0.1, to=2.0, increment=0.05, width=10, textvariable=dist_var)
+        # Get max activation distance from GUI config
+        gui_config = self.settings.get_gui_config()
+        max_distance = gui_config.get('max_activation_distance', 5.0)
+        dist_spinbox = ttk.Spinbox(dist_frame, from_=0.1, to=max_distance, increment=0.05, width=10, textvariable=dist_var)
         dist_spinbox.pack(side=tk.LEFT, padx=(0, 5))
         dist_spinbox.bind('<Key>', lambda e: self._highlight_changes(feeder_id))
         dist_spinbox.bind('<Button-1>', lambda e: self._highlight_changes(feeder_id))
@@ -362,7 +382,7 @@ class FeederPanel:
         def check_changes():
             try:
                 # Get current values from feeder manager
-                configs = self.feeder_manager.get_feeder_configs()
+                configs = self.feeder_controller.get_feeder_configs()
                 current_config = configs[feeder_id]
                 
                 # Get pending values from GUI
@@ -409,34 +429,34 @@ class FeederPanel:
             new_dist = self.feeder_vars[feeder_id]['dist_var'].get()
             
             # Get current config for comparison
-            configs = self.feeder_manager.get_feeder_configs()
+            configs = self.feeder_controller.get_feeder_configs()
             current_config = configs[feeder_id]
             
             changes_made = []
             
             # Apply duration change
             if new_duration != current_config.duration_ms:
-                self.feeder_manager.update_feeder_config(feeder_id, duration_ms=new_duration)
+                self.feeder_controller.update_feeder_config(feeder_id, duration_ms=new_duration)
                 changes_made.append(f"Duration: {current_config.duration_ms} -> {new_duration}")
                 
             # Apply probability change
             if abs(new_prob - current_config.probability) > 0.01:
-                self.feeder_manager.update_feeder_config(feeder_id, probability=new_prob)
+                # Note: Probability is now handled in task logic configuration
                 changes_made.append(f"Probability: {current_config.probability:.2f} -> {new_prob:.2f}")
                 
             # Apply speed change
             if new_speed != current_config.speed:
-                self.feeder_manager.update_feeder_config(feeder_id, speed=new_speed)
+                self.feeder_controller.update_feeder_config(feeder_id, speed=new_speed)
                 changes_made.append(f"Speed: {current_config.speed} -> {new_speed}")
                 
             # Apply distance change
             if abs(new_dist - current_config.activation_distance) > 0.01:
-                self.feeder_manager.update_feeder_config(feeder_id, activation_distance=new_dist)
+                self.feeder_controller.update_feeder_config(feeder_id, activation_distance=new_dist)
                 changes_made.append(f"Distance: {current_config.activation_distance:.2f} -> {new_dist:.2f}")
             
             if changes_made:
                 # Update current value displays
-                updated_configs = self.feeder_manager.get_feeder_configs()
+                updated_configs = self.feeder_controller.get_feeder_configs()
                 updated_config = updated_configs[feeder_id]
                 self.feeder_vars[feeder_id]['current_duration_label'].config(text=str(updated_config.duration_ms))
                 self.feeder_vars[feeder_id]['current_prob_label'].config(text=f"{updated_config.probability:.1f}")
@@ -458,7 +478,7 @@ class FeederPanel:
     def _manual_reward(self, feeder_id: int):
         """Trigger manual reward"""
         try:
-            success = self.feeder_manager.manual_reward(feeder_id)
+            success = self.feeder_controller.manual_reward(feeder_id)
             if success:
                 self.event_logger.info(f"Manual reward triggered for feeder {feeder_id}")
             else:
@@ -466,14 +486,26 @@ class FeederPanel:
         except Exception as e:
             self.event_logger.error(f"Error triggering manual reward: {e}")
     
+    def _simulate_beam_break(self, feeder_id: int):
+        """Simulate beam break for specified feeder"""
+        try:
+            # Check if using mock Arduino
+            if hasattr(self.feeder_controller.arduino, 'simulate_beam_break'):
+                self.feeder_controller.arduino.simulate_beam_break(feeder_id)
+                self.event_logger.info(f"Simulated beam break for feeder {feeder_id}")
+            else:
+                self.event_logger.warning(f"Beam break simulation not available with real Arduino")
+        except Exception as e:
+            self.event_logger.error(f"Error simulating beam break: {e}")
+    
     def _test_motor(self, feeder_id: int):
         """Test motor operation"""
         try:
-            configs = self.feeder_manager.get_feeder_configs()
+            configs = self.feeder_controller.get_feeder_configs()
             if feeder_id in configs:
                 duration = configs[feeder_id].duration_ms
                 speed = configs[feeder_id].speed
-                success = self.feeder_manager.arduino.activate_motor(feeder_id, duration, speed)
+                success = self.feeder_controller.arduino.activate_motor(feeder_id, duration, speed)
                 if success:
                     self.event_logger.info(f"Motor test successful for feeder {feeder_id}")
                 else:
@@ -506,12 +538,12 @@ class FeederPanel:
                 time.sleep(1.0)  # Update every 1000ms
             except Exception as e:
                 print(f"Feeder panel update error: {e}")
-                time.sleep(0.5)
+                time.sleep(1.0)
     
     def _update_display(self):
         """Update feeder table display (called on main thread)"""
         try:
-            feeder_configs = self.feeder_manager.get_feeder_configs()
+            feeder_configs = self.feeder_controller.get_feeder_configs()
             
             for feeder_id, config in feeder_configs.items():
                 item_id = f'feeder_{feeder_id}'

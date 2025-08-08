@@ -139,7 +139,10 @@ class FlightDisplay:
                     self.parent.after_idle(self._update_plot)
                 time.sleep(1.0)  # Update at 1 Hz
             except Exception as e:
-                print(f"Flight display update error: {e}")
+                import traceback
+                print(f"Flight display update error in {__file__}:")
+                print(f"Error: {e}")
+                traceback.print_exc()
                 time.sleep(0.2)
     
     def _update_plot(self):
@@ -190,7 +193,10 @@ class FlightDisplay:
             self.canvas.draw_idle()
             
         except Exception as e:
-            print(f"Error updating flight plot: {e}")
+            import traceback
+            print(f"Error updating flight plot in {__file__}:")
+            print(f"Error: {e}")
+            traceback.print_exc()
     
     def _plot_bat_path(self, data: Dict, bat_id: str, color: str, view_mode: str):
         """Plot path for a single bat"""

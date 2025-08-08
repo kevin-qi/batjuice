@@ -11,12 +11,13 @@ from .bat_panel import BatPanel
 from .flight_display_3d import FlightDisplay3D
 from .session_controls import SessionControls
 from .config_display import ConfigDisplay
+from .comprehensive_config_display import ComprehensiveConfigDisplay
 
 
 class MainWindow:
     """Main application window"""
     
-    def __init__(self, feeder_manager, settings, data_logger, event_logger):
+    def __init__(self, feeder_controller, settings, data_logger, event_logger):
         """
         Initialize main window
         
@@ -26,7 +27,7 @@ class MainWindow:
             data_logger: DataLogger instance
             event_logger: EventLogger instance
         """
-        self.feeder_manager = feeder_manager
+        self.feeder_controller = feeder_controller
         self.settings = settings
         self.data_logger = data_logger
         self.event_logger = event_logger
@@ -68,15 +69,10 @@ class MainWindow:
         notebook.add(control_frame, text="Control")
         self._setup_control_tab(control_frame)
         
-        # Monitoring tab
-        monitor_frame = ttk.Frame(notebook)
-        notebook.add(monitor_frame, text="Monitoring")
-        self._setup_monitor_tab(monitor_frame)
-        
-        # Configuration tab
+        # Configuration tab (comprehensive display of all config values)
         config_frame = ttk.Frame(notebook)
         notebook.add(config_frame, text="Configuration")
-        self._setup_config_tab(config_frame)
+        self._setup_comprehensive_config_tab(config_frame)
         
         # Status bar
         self._setup_status_bar(main_frame)
@@ -99,26 +95,26 @@ class MainWindow:
         left_paned = ttk.PanedWindow(main_paned, orient=tk.VERTICAL)
         main_paned.add(left_paned, weight=1)
         
-        # Top left - Feeders
-        feeder_frame = ttk.LabelFrame(left_paned, text="Feeders", padding=10)
-        left_paned.add(feeder_frame, weight=1)
+        # Top left - Feeders (compact)
+        feeder_frame = ttk.LabelFrame(left_paned, text="Feeders", padding=5)
+        left_paned.add(feeder_frame, weight=2)
         
         self.feeder_panel = FeederPanel(
             feeder_frame, 
-            self.feeder_manager,
+            self.feeder_controller,
             self.settings,
             self.event_logger
         )
         
-        # Bottom left - Bats
-        bat_frame = ttk.LabelFrame(left_paned, text="Bats", padding=10)
+        # Bottom left - Bats (compact)
+        bat_frame = ttk.LabelFrame(left_paned, text="Bats", padding=5)
         left_paned.add(bat_frame, weight=1)
         
-        self.bat_panel = BatPanel(bat_frame, self.feeder_manager)
+        self.bat_panel = BatPanel(bat_frame, self.feeder_controller, self.settings)
         
-        # Right section - Flight Paths Display
-        flight_frame = ttk.LabelFrame(main_paned, text="Flight Paths", padding=5)
-        main_paned.add(flight_frame, weight=2)  # Give more space to flight display
+        # Right section - Flight Paths Display (larger)
+        flight_frame = ttk.LabelFrame(main_paned, text="Flight Paths", padding=3)
+        main_paned.add(flight_frame, weight=3)  # Give even more space to flight display
         
         # Create flight display in the control tab
         room_config = self.settings.config.get('room', {})
@@ -126,48 +122,9 @@ class MainWindow:
         self.flight_display = FlightDisplay3D(flight_frame, self.settings.get_gui_config(), 
                                             room_config, feeder_configs)
     
-    def _setup_monitor_tab(self, parent):
-        """Setup the monitoring tab"""
-        # Session info frame
-        info_frame = ttk.LabelFrame(parent, text="Session Information", padding=10)
-        info_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        # Session ID
-        session_frame = ttk.Frame(info_frame)
-        session_frame.pack(fill=tk.X)
-        ttk.Label(session_frame, text="Session ID:").pack(side=tk.LEFT)
-        session_id = self.data_logger.get_session_id()
-        ttk.Label(session_frame, text=session_id, font=('TkDefaultFont', 9, 'bold')).pack(side=tk.LEFT, padx=(5, 0))
-        
-        # Tracking system
-        tracking_frame = ttk.Frame(info_frame)
-        tracking_frame.pack(fill=tk.X, pady=(5, 0))
-        ttk.Label(tracking_frame, text="Tracking System:").pack(side=tk.LEFT)
-        tracking_system = self.settings.get_tracking_system().value
-        ttk.Label(tracking_frame, text=tracking_system.upper(), font=('TkDefaultFont', 9, 'bold')).pack(side=tk.LEFT, padx=(5, 0))
-        
-        # System statistics frame
-        stats_frame = ttk.LabelFrame(parent, text="System Statistics", padding=10)
-        stats_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Create treeview for statistics
-        columns = ('Metric', 'Value')
-        self.stats_tree = ttk.Treeview(stats_frame, columns=columns, show='headings', height=10)
-        
-        for col in columns:
-            self.stats_tree.heading(col, text=col)
-            self.stats_tree.column(col, width=200)
-        
-        # Scrollbar for treeview
-        stats_scrollbar = ttk.Scrollbar(stats_frame, orient=tk.VERTICAL, command=self.stats_tree.yview)
-        self.stats_tree.configure(yscrollcommand=stats_scrollbar.set)
-        
-        self.stats_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        stats_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    
-    def _setup_config_tab(self, parent):
-        """Setup the configuration display tab"""
-        self.config_display = ConfigDisplay(parent, self.settings)
+    def _setup_comprehensive_config_tab(self, parent):
+        """Setup the comprehensive configuration display tab"""
+        self.comprehensive_config_display = ComprehensiveConfigDisplay(parent, self.settings)
     
     def _setup_status_bar(self, parent):
         """Setup status bar"""
@@ -242,9 +199,6 @@ class MainWindow:
             # Update status bar
             self._update_status_bar()
             
-            # Update statistics
-            self._update_statistics()
-            
         except Exception as e:
             self.event_logger.error(f"GUI component update error: {e}")
     
@@ -252,7 +206,7 @@ class MainWindow:
         """Update status bar information"""
         if self.system_started:
             # Update status message
-            bat_count = len(self.feeder_manager.get_bat_states())
+            bat_count = len(self.feeder_controller.get_bat_states())
             self.status_label.config(text=f"Running - {bat_count} bats tracked")
             
             # Update connection indicators (simplified - in real app would check actual connections)
@@ -263,44 +217,6 @@ class MainWindow:
             self.tracking_status.config(foreground="red")
             self.arduino_status.config(foreground="red")
     
-    def _update_statistics(self):
-        """Update system statistics"""
-        # Clear existing items
-        for item in self.stats_tree.get_children():
-            self.stats_tree.delete(item)
-        
-        if self.system_started:
-            # Get current statistics
-            bat_states = self.feeder_manager.get_bat_states()
-            feeder_configs = self.feeder_manager.get_feeder_configs()
-            
-            # Total statistics
-            total_flights = sum(state.flight_count for state in bat_states.values())
-            total_rewards = sum(state.reward_count for state in bat_states.values())
-            total_beam_breaks = sum(config.beam_break_count for config in feeder_configs.values())
-            total_deliveries = sum(config.reward_delivery_count for config in feeder_configs.values())
-            
-            # Add statistics to tree
-            stats = [
-                ("Total Bats", len(bat_states)),
-                ("Total Flights", total_flights),
-                ("Total Rewards", total_rewards),
-                ("Total Beam Breaks", total_beam_breaks),
-                ("Total Deliveries", total_deliveries),
-                ("Active Feeders", len(feeder_configs)),
-            ]
-        else:
-            stats = [
-                ("System Status", "Not Started"),
-                ("Total Bats", 0),
-                ("Total Flights", 0),
-                ("Total Rewards", 0),
-                ("Total Beam Breaks", 0),
-                ("Total Deliveries", 0),
-            ]
-        
-        for metric, value in stats:
-            self.stats_tree.insert('', 'end', values=(metric, value))
     
     def update_flight_display(self, bat_states: Dict):
         """Update flight display with new data"""

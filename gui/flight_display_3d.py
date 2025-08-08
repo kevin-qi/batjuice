@@ -66,7 +66,7 @@ class FlightDisplay3D:
         # Point reduction tracking
         self.last_cleanup_time = time.time()
         self.cleanup_interval = 5.0  # Clean up every 5 seconds
-        self.stationary_threshold = 0.5  # meters
+        self.stationary_threshold = gui_config.get('stationary_threshold', 0.5)  # meters
         self.stationary_time_window = 1.0  # seconds
         
         # Setup display
@@ -255,8 +255,12 @@ class FlightDisplay3D:
                     self.parent.after_idle(self._update_plot)
                 time.sleep(0.1)  # Update at 10 Hz
             except Exception as e:
-                print(f"Flight display update error: {e}")
-                time.sleep(0.5)
+                import traceback
+                print(f"Flight display update error in {__file__}:")
+                print(f"Error: {e}")
+                traceback.print_exc()
+                update_interval = self.gui_config.get('flight_display_update_interval', 0.5)
+                time.sleep(update_interval)
     
     def _update_plot(self):
         """Update the 3D plot (called on main thread)"""
@@ -316,7 +320,10 @@ class FlightDisplay3D:
             self.canvas.draw_idle()
             
         except Exception as e:
-            print(f"Error updating 3D flight plot: {e}")
+            import traceback
+            print(f"Error updating 3D flight plot in {__file__}:")
+            print(f"Error: {e}")
+            traceback.print_exc()
     
     def _draw_static_elements(self):
         """Draw static room elements that don't change"""
@@ -345,10 +352,12 @@ class FlightDisplay3D:
         # Remove ALL collections except static ones and current cached collections
         for collection in self.ax.collections:
             # Keep feeder markers (large red squares)
-            if hasattr(collection, '_sizes') and collection._sizes and max(collection._sizes) >= 200:
+            if (hasattr(collection, '_sizes') and collection._sizes is not None and 
+                len(collection._sizes) > 0 and max(collection._sizes) >= 200):
                 continue
             # Keep activation zones (transparent spheres)  
-            if hasattr(collection, '_alpha') and collection._alpha and collection._alpha < 0.5:
+            if (hasattr(collection, '_alpha') and collection._alpha is not None and 
+                collection._alpha < 0.5):
                 continue
             # Keep current cached Line3DCollections
             if collection in self.cached_collections.values():
@@ -408,11 +417,19 @@ class FlightDisplay3D:
             y_array = np.array(y_data)
             z_array = np.array(z_data)
             
+            # Check for NaN values and skip if any are present
+            if np.isnan(x_array).any() or np.isnan(y_array).any() or np.isnan(z_array).any():
+                return
+            
             # Create line segments - optimized for large datasets
             points = np.array([x_array, y_array, z_array]).T
             segments = np.array([points[:-1], points[1:]]).transpose(1, 0, 2)
             
             n_segments = len(segments)
+            
+            # Skip if no segments to draw
+            if n_segments == 0:
+                return
             
             # Optimized fading calculation - recent = more visible
             fade_samples = min(20, n_segments)
@@ -438,14 +455,17 @@ class FlightDisplay3D:
             colors = [(color_rgb[0], color_rgb[1], color_rgb[2], alpha) for alpha in alphas]
             
             # Create and cache Line3DCollection (ONLY TRAILS - NO DOTS)
-            lc = Line3DCollection(segments, colors=colors, linewidths=linewidths, 
-                                capstyle='round', joinstyle='round')
-            self.ax.add_collection3d(lc)
-            
-            # Cache the collection properly
-            self.cached_collections[bat_id] = lc
-            self.cache_dirty[bat_id] = False
-            self.last_data_lengths[bat_id] = current_length
+            # Additional safety check for empty arrays
+            if (len(colors) > 0 and len(linewidths) > 0 and len(segments) > 0 and 
+                segments.size > 0 and len(alphas) > 0):
+                lc = Line3DCollection(segments, colors=colors, linewidths=linewidths, 
+                                    capstyle='round', joinstyle='round')
+                self.ax.add_collection3d(lc)
+                
+                # Cache the collection properly
+                self.cached_collections[bat_id] = lc
+                self.cache_dirty[bat_id] = False
+                self.last_data_lengths[bat_id] = current_length
         
         # Only current position marker (SINGLE DOT ONLY)
         self.ax.scatter([x_data[-1]], [y_data[-1]], [z_data[-1]], 

@@ -75,9 +75,25 @@ class ConfigDisplay:
         ttk.Label(data_frame, text="Directory:").grid(row=0, column=0, sticky="w")
         ttk.Label(data_frame, textvariable=self.config_vars['data_directory']).grid(row=0, column=1, sticky="w", padx=(10, 0))
         
+        # Task logic settings
+        task_frame = ttk.LabelFrame(self.frame, text="Task Logic", padding="3")
+        task_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=2)
+        
+        self.config_vars['reactivation_distance'] = tk.StringVar()
+        ttk.Label(task_frame, text="Reactivation Distance:").grid(row=0, column=0, sticky="w")
+        ttk.Label(task_frame, textvariable=self.config_vars['reactivation_distance']).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        
+        self.config_vars['reactivation_time'] = tk.StringVar()
+        ttk.Label(task_frame, text="Reactivation Time:").grid(row=1, column=0, sticky="w")
+        ttk.Label(task_frame, textvariable=self.config_vars['reactivation_time']).grid(row=1, column=1, sticky="w", padx=(10, 0))
+        
+        self.config_vars['feeder_ownership_distance'] = tk.StringVar()
+        ttk.Label(task_frame, text="Feeder Ownership Distance:").grid(row=2, column=0, sticky="w")
+        ttk.Label(task_frame, textvariable=self.config_vars['feeder_ownership_distance']).grid(row=2, column=1, sticky="w", padx=(10, 0))
+        
         # GUI settings
         gui_frame = ttk.LabelFrame(self.frame, text="GUI Settings", padding="3")
-        gui_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=2)
+        gui_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=2)
         
         self.config_vars['update_rate'] = tk.StringVar()
         ttk.Label(gui_frame, text="Update Rate:").grid(row=0, column=0, sticky="w")
@@ -85,7 +101,7 @@ class ConfigDisplay:
         
         # Refresh button
         ttk.Button(self.frame, text="Refresh Config", 
-                  command=self._update_display).grid(row=5, column=0, columnspan=2, pady=5)
+                  command=self._update_display).grid(row=6, column=0, columnspan=2, pady=5)
         
         # Configure grid weights
         self.frame.columnconfigure(0, weight=1)
@@ -131,6 +147,19 @@ class ConfigDisplay:
             # Data logging
             logging_config = self.settings.get_logging_config()
             self.config_vars['data_directory'].set(logging_config.get('data_directory', 'data'))
+            
+            # Task logic settings
+            try:
+                from task_logic.task_logic import get_task_parameters
+                task_params = get_task_parameters()
+                self.config_vars['reactivation_distance'].set(f"{task_params.get('reactivation_distance', 'N/A')} m")
+                self.config_vars['reactivation_time'].set(f"{task_params.get('reactivation_time', 'N/A')} s")
+                self.config_vars['feeder_ownership_distance'].set(f"{task_params.get('feeder_ownership_distance', 'N/A')} m")
+            except Exception as e:
+                self.config_vars['reactivation_distance'].set("Error loading")
+                self.config_vars['reactivation_time'].set("Error loading")
+                self.config_vars['feeder_ownership_distance'].set("Error loading")
+                print(f"Error loading task logic parameters: {e}")
             
             # GUI settings
             gui_config = self.settings.get_gui_config()
