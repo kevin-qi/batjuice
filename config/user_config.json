@@ -1,0 +1,87 @@
+{
+  "rtls_system": {
+    "backend": "cortex",
+    "description": "Select 'cortex' for MotionAnalysis or 'ciholas' for UWB system"
+  },
+  
+  "cortex": {
+    "server_ip": "127.0.0.1",
+    "server_port": 1001,
+    "timeout": 5.0,
+    "frame_rate": 120,
+    "description": "MotionAnalysis Cortex system settings"
+  },
+  
+  "ciholas": {
+    "server_ip": "192.168.1.100", 
+    "server_port": 7667,
+    "timeout": 5.0,
+    "frame_rate": 100,
+    "description": "Ciholas UWB system settings"
+  },
+  
+  "room": {
+    "boundaries": {
+      "x_min": 0.0,
+      "x_max": 5.0,
+      "y_min": 0.0,
+      "y_max": 3.0,
+      "z_min": 0.0,
+      "z_max": 2.5
+    },
+    "units": "meters",
+    "description": "Room dimensions and coordinate system"
+  },
+  
+  "feeders": [
+    {
+      "id": 0,
+      "position": [2.5, 1.5, 1.5],
+      "activation_distance": 2,
+      "duration_ms": 100,
+      "speed": 255,
+      "probability": 1.0,
+      "description": "Feeder 0 - Left side"
+    },
+    {
+      "id": 1, 
+      "position": [2.5, -1.5, 1.5],
+      "activation_distance": 2,
+      "duration_ms": 100,
+      "speed": 255,
+      "probability": 1.0,
+      "description": "Feeder 1 - Right side"
+    }
+  ],
+  
+  "arduino": {
+    "port": "COM3",
+    "baudrate": 9600,
+    "timeout": 1.0,
+    "description": "Arduino serial communication settings"
+  },
+  
+  "gui": {
+    "update_rate_hz": 30,
+    "plot_update_rate_hz": 10,
+    "max_flight_points": 10000,
+    "flight_trail_fade_samples": 200,
+    "window_title": "BatFeeder Control System",
+    "description": "GUI display and performance settings"
+  },
+  
+  "logging": {
+    "data_directory": "data",
+    "session_prefix": "BatFeeder",
+    "log_level": "INFO",
+    "auto_save_interval_seconds": 30,
+    "description": "Data logging and file management settings"
+  },
+  
+  "session": {
+    "default_name": "BatFeeder_Session",
+    "researcher": "Lab User",
+    "experiment_type": "Feeding Behavior",
+    "description": "Default session information"
+  }
+}

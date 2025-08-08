@@ -1,0 +1,3 @@
+timestamp,event_type,feeder_id,bat_id,manual,duration_ms,details
+1754615832.8492198,session_start,,,False,,BatFeeder_Session_250807
+1754615841.9149096,session_end,,,False,,BatFeeder_Session_250807

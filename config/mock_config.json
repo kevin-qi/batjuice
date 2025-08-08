@@ -1,0 +1,15 @@
+{
+  "mock_rtls": {
+    "data_file": "data/flight_positions.npy",
+    "bat_count": 2,
+    "bat_ids": ["Bat_001", "Bat_002"],
+    "tag_ids": [1, 2],
+    "loop_data": true,
+    "description": "Stream real experimental data from flight_positions.npy"
+  },
+  
+  "mock_arduino": {
+    "log_file": "mock_arduino.txt",
+    "description": "Log Arduino communication to file instead of using hardware"
+  }
+}

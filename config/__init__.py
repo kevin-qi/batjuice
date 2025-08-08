@@ -1,0 +1,1 @@
+"""Configuration module for the bat feeder system."""

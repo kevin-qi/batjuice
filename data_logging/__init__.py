@@ -1,0 +1,1 @@
+"""Data logging module for the bat feeder system."""

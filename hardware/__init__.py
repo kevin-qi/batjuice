@@ -1,0 +1,1 @@
+"""Hardware control module for the bat feeder system."""
