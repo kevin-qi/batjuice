@@ -22,19 +22,23 @@ from task_logic.task_logic import initialize_task_logic
 class BatFeederSystem:
     """Main system coordinator"""
     
-    def __init__(self, mock_arduino: bool = False, mock_rtls: bool = False):
+    def __init__(self, mock_arduino: bool = False, mock_rtls: bool = False, settings=None):
         """
         Initialize the bat feeder system
         
         Args:
             mock_arduino: Run Arduino in mock mode (log communication instead of using hardware)
             mock_rtls: Run RTLS (position tracking) in mock mode
+            settings: Pre-loaded Settings instance (if None, will load default config)
         """
         self.mock_arduino = mock_arduino
         self.mock_rtls = mock_rtls
         
-        # Load configuration
-        self.settings = Settings()
+        # Load or use provided configuration
+        if settings is None:
+            self.settings = Settings()
+        else:
+            self.settings = settings
         
         # Initialize task logic with settings
         initialize_task_logic(self.settings)
@@ -328,31 +332,59 @@ class BatFeederSystem:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='Bat Feeder Control System')
+    parser.add_argument('--config', '-c', 
+                       default='config/user_config.json',
+                       help='Configuration file path (default: config/user_config.json)')
     parser.add_argument('--mock', action='store_true', 
                        help='Run in full mock mode (both Arduino and RTLS)')
     parser.add_argument('--mock-arduino', action='store_true',
                        help='Mock Arduino only - log serial communication to mock_arduino.txt')
     parser.add_argument('--mock-rtls', action='store_true', 
                        help='Mock RTLS (position tracking) only - generate simulated bat movements')
+    parser.add_argument('--validate', action='store_true',
+                       help='Validate configuration and exit')
     
     args = parser.parse_args()
     
-    # Handle mock mode flags
+    # Load and validate configuration
+    try:
+        from config.settings import Settings
+        from config.validator import ConfigurationError
+        
+        settings = Settings(config_file=args.config)
+        
+        if args.validate:
+            print(f"Configuration file '{args.config}' is valid!")
+            print("Loaded experiment:", settings.config.get('experiment', {}).get('name', 'Unnamed'))
+            print("Task logic:", settings.get_task_logic_module())
+            return 0
+            
+    except ConfigurationError as e:
+        print(f"Configuration error in '{args.config}':")
+        print(str(e))
+        return 1
+    except Exception as e:
+        print(f"Failed to load configuration: {e}")
+        return 1
+    
+    # Handle mock mode flags (can override config)
     mock_arduino = args.mock or args.mock_arduino
     mock_rtls = args.mock or args.mock_rtls
     
-    # Create and initialize system
-    system = BatFeederSystem(mock_arduino=mock_arduino, mock_rtls=mock_rtls)
+    # Create and initialize system with custom settings
+    system = BatFeederSystem(mock_arduino=mock_arduino, mock_rtls=mock_rtls, settings=settings)
     
     if not system.initialize():
         print("Failed to initialize system")
-        sys.exit(1)
+        return 1
     
     try:
         # Start system (blocks until GUI is closed)
         system.start()
+        return 0
     except KeyboardInterrupt:
         print("\nShutting down...")
+        return 0
     finally:
         system.stop()
 

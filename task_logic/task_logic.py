@@ -297,14 +297,59 @@ class TaskLogic:
         return math.sqrt(dx*dx + dy*dy + dz*dz)
 
 
+class TaskLogicLegacyWrapper:
+    """Legacy wrapper to maintain compatibility with existing system"""
+    
+    def __init__(self, adapter):
+        self.adapter = adapter
+        self.reactivation_time = 0.2  # Legacy compatibility
+    
+    def should_deliver_reward(self, system_state, feeder_id, triggering_bat_id):
+        """Legacy compatibility wrapper"""
+        return self.adapter.should_deliver_reward(system_state, feeder_id, triggering_bat_id)
+    
+    def update_task_parameters(self, **kwargs):
+        """Legacy compatibility - update adapter config"""
+        self.adapter.update_config(kwargs)
+    
+    def get_task_parameters(self):
+        """Legacy compatibility - get adapter config"""
+        return self.adapter.get_config()
+    
+    def update_bat_state_after_reward(self, system_state, bat_id, feeder_id):
+        """Legacy compatibility - no-op for now"""
+        pass
+    
+    def reload_task_config(self):
+        """Legacy compatibility - reload adapter"""
+        self.adapter.reload_logic()
+    
+    def save_task_config(self):
+        """Legacy compatibility - no-op for now"""
+        pass
+
+
 # Global instance - single source of truth for task logic
 # Will be initialized with settings object when available
 task_logic = None
 
 def initialize_task_logic(settings=None):
-    """Initialize the global task logic instance with settings"""
+    """Initialize the global task logic instance with adapter"""
     global task_logic
-    task_logic = TaskLogic(settings)
+    
+    # Get task logic configuration
+    logic_module = "standard"  # default
+    logic_config = {}
+    
+    if settings:
+        # Try to get task logic from settings (for future config system)
+        logic_module = getattr(settings, 'get_task_logic_module', lambda: "standard")()
+        logic_config = getattr(settings, 'get_task_logic_config', lambda: {})()
+    
+    # Create adapter-based task logic
+    from .adapter import TaskLogicAdapter
+    adapter = TaskLogicAdapter(logic_module, logic_config)
+    task_logic = TaskLogicLegacyWrapper(adapter)
     return task_logic
 
 

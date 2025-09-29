@@ -20,18 +20,59 @@ class Settings:
         """
         self.config_file = config_file
         self.mock_config_file = mock_config_file
-        self.config = self._load_config()
-        self.mock_config = None  # Loaded only when mock mode is used
+        self.config = self._load_and_validate_config()
+        self.mock_config = None  # Loaded only when mock mode is used  # Loaded only when mock mode is used
     
-    def _load_config(self) -> Dict[str, Any]:
-        """Load main configuration from JSON file"""
+    def _load_and_validate_config(self) -> Dict[str, Any]:
+        """Load and validate configuration from JSON file"""
+        from .validator import ConfigurationValidator, ConfigurationError
+        
         try:
+            # Check if file exists
+            if not os.path.exists(self.config_file):
+                raise ConfigurationError(f"Configuration file not found: {self.config_file}")
+            
+            # Load configuration
             with open(self.config_file, 'r') as f:
                 config = json.load(f)
                 print(f"Loaded configuration from {self.config_file}")
-                return config
+            
+            # Validate configuration
+            validator = ConfigurationValidator()
+            validator.validate_and_raise(config)
+            print("Configuration validation passed")
+            
+            # Apply defaults for missing optional values
+            config = self._apply_defaults(config)
+            
+            return config
+            
+        except ConfigurationError:
+            raise  # Re-raise configuration errors as-is
         except Exception as e:
-            raise RuntimeError(f"Failed to load configuration from {self.config_file}: {e}. Fix the configuration file - no default fallback available.")
+            raise ConfigurationError(f"Failed to load configuration from {self.config_file}: {e}")
+    
+    def _apply_defaults(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply default values for missing optional configuration"""
+        # Apply Arduino defaults
+        arduino = config.setdefault('arduino', {})
+        arduino.setdefault('port', 'COM3')
+        arduino.setdefault('baudrate', 9600)
+        arduino.setdefault('timeout', 1.0)
+        
+        # Apply GUI defaults
+        gui = config.setdefault('gui', {})
+        gui.setdefault('update_rate_hz', 30)
+        gui.setdefault('plot_update_rate_hz', 10)
+        gui.setdefault('window_title', 'BatFeeder Control System')
+        
+        # Apply logging defaults
+        logging_config = config.setdefault('logging', {})
+        logging_config.setdefault('data_directory', 'data')
+        logging_config.setdefault('session_prefix', 'BatFeeder')
+        logging_config.setdefault('log_level', 'INFO')
+        
+        return config
     
     def load_mock_config(self) -> Dict[str, Any]:
         """Load mock configuration when needed"""
@@ -131,6 +172,17 @@ class Settings:
         mock_config = self.get_mock_config()
         return mock_config.get("mock_arduino", {})
     
+    def get_task_logic_module(self) -> str:
+        """Get task logic module name"""
+        experiment = self.config.get('experiment', {})
+        return experiment.get('task_logic', 'standard')
+    
+    def get_task_logic_config(self) -> Dict[str, Any]:
+        """Get configuration for the active task logic"""
+        logic_name = self.get_task_logic_module()
+        task_logic_configs = self.config.get('task_logic_config', {})
+        return task_logic_configs.get(logic_name, {})
+
     def get_config_summary(self) -> Dict[str, Any]:
         """Get a summary of current configuration for display"""
         return {

@@ -12,6 +12,7 @@ import threading
 import math
 from typing import Dict, Optional, Callable
 from utils.data_structures import Position, RewardEvent
+from utils.decorators import safe_operation
 from task_logic.system_state import SystemState
 from task_logic.task_logic import should_deliver_reward, update_bat_state_after_reward
 
@@ -204,6 +205,7 @@ class FeederController:
         else:
             self.stats['rewards_denied'] += 1
     
+    @safe_operation(default_return=None)
     def _find_closest_bat_to_feeder(self, feeder_id: int) -> Optional[str]:
         """
         Find the closest bat to a feeder that's within triggering distance.

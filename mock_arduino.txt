@@ -1,8 +1,6 @@
 === Mock Arduino Communication Log ===
-Started: 2025-08-07 22:07:26
-Port: demo (MOCKED)
+Started: 2025-09-29 15:37:54
+Port: COM3 (MOCKED)
 Baudrate: 9600
 
-[22:07:26.410] SYSTEM: Mock Arduino connected
-[22:07:26.419] TX: MOTOR:0:100:255
-[22:07:26.421] RX: MOTOR_START:0:100
+[15:37:54.647] SYSTEM: Mock Arduino connected

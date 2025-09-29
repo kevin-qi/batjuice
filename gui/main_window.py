@@ -10,7 +10,6 @@ from .feeder_panel import FeederPanel
 from .bat_panel import BatPanel
 from .flight_display_3d import FlightDisplay3D
 from .session_controls import SessionControls
-from .config_display import ConfigDisplay
 from .comprehensive_config_display import ComprehensiveConfigDisplay
 
 
