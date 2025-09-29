@@ -249,7 +249,7 @@ class FeederController:
         if closest_bat_id:
             print(f"Identified triggering bat: {closest_bat_id} at {min_distance:.2f}m from feeder {feeder_id}")
         else:
-            print(f"No bats within {BEAM_BREAK_THRESHOLD}m of feeder {feeder_id} - beam break ignored")
+            print(f"No bats within {beam_break_threshold}m of feeder {feeder_id} - beam break ignored")
         
         return closest_bat_id
     
