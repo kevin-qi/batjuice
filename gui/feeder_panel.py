@@ -52,20 +52,6 @@ class FeederPanel:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
-        # Global settings frame
-        global_frame = ttk.LabelFrame(scrollable_frame, text="Global Settings", padding=5)
-        global_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        # Dynamic feeder position checkbox
-        self.dynamic_position_var = tk.BooleanVar(value=True)
-        dynamic_pos_cb = ttk.Checkbutton(
-            global_frame,
-            text="Update feeder positions from bat triggers",
-            variable=self.dynamic_position_var,
-            command=self._on_dynamic_position_changed
-        )
-        dynamic_pos_cb.pack(anchor=tk.W)
-        
         # Get feeder configurations
         feeder_configs = self.settings.get_feeder_configs()
         
@@ -74,16 +60,6 @@ class FeederPanel:
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-    
-    def get_dynamic_position_enabled(self) -> bool:
-        """Get whether dynamic feeder position updates are enabled"""
-        return self.dynamic_position_var.get()
-    
-    def _on_dynamic_position_changed(self):
-        """Handle dynamic position checkbox change"""
-        enabled = self.dynamic_position_var.get()
-        # Note: Dynamic position updating is now handled in task logic
-        print(f"Dynamic feeder position updates: {'enabled' if enabled else 'disabled'}")
     
     def _create_feeder_table(self, parent, feeder_configs):
         """Create compact tabular display for feeders"""
@@ -170,19 +146,6 @@ class FeederPanel:
             )
             reward_btn.pack(side=tk.LEFT, padx=2)
         
-        # Beam break simulation buttons (bottom row)
-        beam_frame = ttk.Frame(manual_frame)
-        beam_frame.pack(pady=(5, 0))
-        ttk.Label(beam_frame, text="Beam:").pack(side=tk.LEFT, padx=(0, 5))
-        for feeder_config in feeder_configs:
-            feeder_id = feeder_config.feeder_id
-            beam_btn = ttk.Button(
-                beam_frame,
-                text=f"F{feeder_id}",
-                width=4,
-                command=lambda fid=feeder_id: self._simulate_beam_break(fid)
-            )
-            beam_btn.pack(side=tk.LEFT, padx=2)
     
     def _apply_quick_config(self):
         """Apply quick configuration to selected feeders"""
@@ -485,18 +448,6 @@ class FeederPanel:
                 self.event_logger.warning(f"Failed to trigger manual reward for feeder {feeder_id}")
         except Exception as e:
             self.event_logger.error(f"Error triggering manual reward: {e}")
-    
-    def _simulate_beam_break(self, feeder_id: int):
-        """Simulate beam break for specified feeder"""
-        try:
-            # Check if using mock Arduino
-            if hasattr(self.feeder_controller.arduino, 'simulate_beam_break'):
-                self.feeder_controller.arduino.simulate_beam_break(feeder_id)
-                self.event_logger.info(f"Simulated beam break for feeder {feeder_id}")
-            else:
-                self.event_logger.warning(f"Beam break simulation not available with real Arduino")
-        except Exception as e:
-            self.event_logger.error(f"Error simulating beam break: {e}")
     
     def _test_motor(self, feeder_id: int):
         """Test motor operation"""
