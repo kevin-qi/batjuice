@@ -2,40 +2,55 @@
 Task Logic Adapter - Bridges complex system with simple scientist logic
 """
 import importlib
+import importlib.util
+import sys
 import time
-from typing import Tuple
+from typing import Tuple, Optional
 from .interface import BatInfo, FeederInfo, TriggerEvent
 from task_logic.system_state import SystemState
 
 
 class TaskLogicAdapter:
     """Bridges complex system state with simple scientist interface"""
-    
-    def __init__(self, logic_module: str = "standard", config: dict = None):
+
+    def __init__(self, logic_path: Optional[str] = None, config: dict = None):
         """
-        Initialize adapter with specified logic module
-        
+        Initialize adapter with specified logic file
+
         Args:
-            logic_module: Name of logic module to load from task_logic.logics
-            config: Task-specific configuration
+            logic_path: Path to .py file containing decide_reward function (e.g., "config/Kevin/proximity_study.py")
+                       If None, uses default logic
+            config: Task-specific configuration from task_logic_config section
         """
-        self.logic_module_name = logic_module
+        self.logic_path = logic_path
         self.config = config or {}
         self._load_logic_module()
-    
+
     def _load_logic_module(self):
-        """Load the scientist's decision function"""
-        try:
-            module_path = f"task_logic.logics.{self.logic_module_name}"
-            module = importlib.import_module(module_path)
-            self.decide_reward = module.decide_reward
-            print(f"Loaded task logic: {self.logic_module_name}")
-        except ImportError as e:
-            print(f"Failed to load task logic '{self.logic_module_name}': {e}")
-            # Fallback to standard logic
-            from task_logic.logics.standard import decide_reward
-            self.decide_reward = decide_reward
-            print("Using fallback standard logic")
+        """Load the scientist's decision function from file path"""
+        if self.logic_path:
+            try:
+                # Load module from file path
+                spec = importlib.util.spec_from_file_location("user_task_logic", self.logic_path)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules["user_task_logic"] = module
+                    spec.loader.exec_module(module)
+                    self.decide_reward = module.decide_reward
+                    print(f"Loaded task logic from: {self.logic_path}")
+                    return
+                else:
+                    print(f"Failed to load task logic from '{self.logic_path}': invalid spec")
+            except Exception as e:
+                print(f"Failed to load task logic from '{self.logic_path}': {e}")
+
+        # Fallback: use default always-approve logic
+        print("Using default task logic (always approve)")
+        self.decide_reward = self._default_logic
+
+    def _default_logic(self, bat: BatInfo, feeder: FeederInfo, event: TriggerEvent, config: dict) -> bool:
+        """Default fallback logic - approve all rewards for active bats"""
+        return bat.is_active and feeder.is_available
     
     def should_deliver_reward(self, system_state: SystemState, feeder_id: int, 
                             triggering_bat_id: str) -> Tuple[bool, str]:
@@ -71,10 +86,17 @@ class TaskLogicAdapter:
         
         # Convert system state to simple data structures
         try:
+            # Extract position from last_position tuple (x, y, z, timestamp)
+            position = (0.0, 0.0, 0.0)
+            position_age = float('inf')
+            if bat_state.last_position and len(bat_state.last_position) >= 4:
+                position = bat_state.last_position[:3]
+                position_age = current_time - bat_state.last_position[3]
+
             bat_info = BatInfo(
                 id=triggering_bat_id,
-                position=(bat_state.x, bat_state.y, bat_state.z),
-                position_age=current_time - bat_state.position_timestamp,
+                position=position,
+                position_age=position_age,
                 is_active=bat_state.activation_state == "ACTIVE",
                 time_since_last_reward=self._calculate_time_since_last_reward(bat_state, current_time),
                 last_reward_feeder_id=bat_state.last_reward_feeder_id
