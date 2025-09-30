@@ -9,19 +9,50 @@ from utils.data_structures import TrackingSystem
 
 class Settings:
     """Manages system configuration settings"""
-    
-    def __init__(self, config_file: str = "config/user_config.json", mock_config_file: str = "config/mock_config.json"):
+
+    def __init__(self, config_file: str = "Kevin/proximity_study", mock_config_file: str = "config/mock_config.json"):
         """
-        Initialize settings from configuration files
-        
+        Initialize settings from configuration file
+
         Args:
-            config_file: Path to the main user configuration file
-            mock_config_file: Path to the mock configuration file (loaded only when needed)
+            config_file: Path to experiment config file. Can be:
+                - Short format: "Kevin/proximity_study" (automatically adds config/ prefix and .json suffix)
+                - Full path: "config/Kevin/proximity_study.json"
+            mock_config_file: Path to mock configuration file (for testing only, separate from experiments)
         """
-        self.config_file = config_file
+        self.task_logic_path = None  # Initialize before _resolve_config_path
+        self.config_file = self._resolve_config_path(config_file)
         self.mock_config_file = mock_config_file
         self.config = self._load_and_validate_config()
-        self.mock_config = None  # Loaded only when mock mode is used  # Loaded only when mock mode is used
+        self.mock_config = None  # Loaded on demand for mock mode
+
+    def _resolve_config_path(self, config_file: str) -> str:
+        """
+        Resolve config file path and check for paired task logic file.
+
+        Supports formats:
+        - "Kevin/proximity_study" -> "config/Kevin/proximity_study.json"
+        - "config/Kevin/proximity_study.json" -> as-is
+        """
+        # If it already has .json extension and starts with config/, use as-is
+        if config_file.endswith('.json'):
+            base_path = config_file.replace('.json', '')
+        else:
+            # Short format: add config/ prefix if not present
+            if not config_file.startswith('config/'):
+                base_path = f"config/{config_file}"
+            else:
+                base_path = config_file
+
+        # Set paths for both .json and .py files
+        json_path = f"{base_path}.json"
+        py_path = f"{base_path}.py"
+
+        # Check if paired .py file exists
+        if os.path.exists(py_path):
+            self.task_logic_path = py_path
+
+        return json_path
     
     def _load_and_validate_config(self) -> Dict[str, Any]:
         """Load and validate configuration from JSON file"""
@@ -74,19 +105,19 @@ class Settings:
         
         return config
     
-    def load_mock_config(self) -> Dict[str, Any]:
-        """Load mock configuration when needed"""
+    def _load_mock_config(self) -> Dict[str, Any]:
+        """Load mock configuration file on demand"""
         if self.mock_config is None:
             try:
                 with open(self.mock_config_file, 'r') as f:
                     self.mock_config = json.load(f)
                     print(f"Loaded mock configuration from {self.mock_config_file}")
             except Exception as e:
-                raise RuntimeError(f"Failed to load mock configuration from {self.mock_config_file}: {e}. Fix the mock configuration file - no default fallback available.")
+                print(f"Warning: Could not load mock config from {self.mock_config_file}: {e}")
+                self.mock_config = {}
         return self.mock_config
-    
-    
-    # Updated getter methods for new config structure
+
+    # Getter methods for configuration sections
     def get_rtls_backend(self) -> str:
         """Get the selected RTLS backend (cortex or ciholas)"""
         return self.config.get("rtls_system", {}).get("backend", "cortex")
@@ -121,18 +152,49 @@ class Settings:
         feeder_configs = []
         
         for feeder in feeder_data:
-            # Convert new config format to FeederConfig object
-            config = FeederConfig(
-                feeder_id=feeder.get("id", 0),  # Use "id" from new config
-                x_position=feeder.get("position", [0, 0, 0])[0],
-                y_position=feeder.get("position", [0, 0, 0])[1], 
-                z_position=feeder.get("position", [0, 0, 0])[2],
-                activation_radius=feeder.get("activation_radius", 3.0),
-                reactivation_distance=feeder.get("reactivation_distance", 2.0),
-                duration_ms=feeder.get("duration_ms", 500),
-                speed=feeder.get("speed", 255),
-                probability=feeder.get("probability", 1.0)
-            )
+            feeder_id = feeder.get("id", 0)
+            
+            # Handle both old single position and new multiple positions format
+            if 'positions' in feeder:
+                # New format with multiple positions
+                positions = feeder.get('positions', [])
+                default_index = feeder.get('default_position', 0)
+                
+                # Use default position coordinates for initial x,y,z
+                if positions and 0 <= default_index < len(positions):
+                    default_coords = positions[default_index]['coordinates']
+                    x, y, z = default_coords
+                else:
+                    x, y, z = 0, 0, 0
+                
+                config = FeederConfig(
+                    feeder_id=feeder_id,
+                    x_position=x,
+                    y_position=y,
+                    z_position=z,
+                    activation_radius=feeder.get("activation_radius", 3.0),
+                    reactivation_distance=feeder.get("reactivation_distance", 2.0),
+                    duration_ms=feeder.get("duration_ms", 500),
+                    speed=feeder.get("speed", 255),
+                    probability=feeder.get("probability", 1.0),
+                    available_positions=positions,
+                    current_position_index=default_index
+                )
+            else:
+                # Old format with single position (backwards compatibility)
+                position = feeder.get("position", [0, 0, 0])
+                config = FeederConfig(
+                    feeder_id=feeder_id,
+                    x_position=position[0],
+                    y_position=position[1], 
+                    z_position=position[2],
+                    activation_radius=feeder.get("activation_radius", 3.0),
+                    reactivation_distance=feeder.get("reactivation_distance", 2.0),
+                    duration_ms=feeder.get("duration_ms", 500),
+                    speed=feeder.get("speed", 255),
+                    probability=feeder.get("probability", 1.0)
+                )
+            
             feeder_configs.append(config)
         
         return feeder_configs
@@ -157,31 +219,23 @@ class Settings:
         """Get task logic configuration"""
         return self.config.get("task_logic", {})
     
-    # Mock configuration getters (only when needed)
-    def get_mock_config(self) -> Dict[str, Any]:
-        """Get mock configuration (loads file if not already loaded)"""
-        return self.load_mock_config()
-    
     def get_mock_rtls_config(self) -> Dict[str, Any]:
-        """Get mock RTLS configuration"""
-        mock_config = self.get_mock_config()
+        """Get mock RTLS configuration (for testing only)"""
+        mock_config = self._load_mock_config()
         return mock_config.get("mock_rtls", {})
-    
+
     def get_mock_arduino_config(self) -> Dict[str, Any]:
-        """Get mock Arduino configuration"""
-        mock_config = self.get_mock_config()
+        """Get mock Arduino configuration (for testing only)"""
+        mock_config = self._load_mock_config()
         return mock_config.get("mock_arduino", {})
     
-    def get_task_logic_module(self) -> str:
-        """Get task logic module name"""
-        experiment = self.config.get('experiment', {})
-        return experiment.get('task_logic', 'standard')
-    
+    def get_task_logic_path(self) -> Optional[str]:
+        """Get path to task logic Python file (if paired file exists)"""
+        return self.task_logic_path
+
     def get_task_logic_config(self) -> Dict[str, Any]:
         """Get configuration for the active task logic"""
-        logic_name = self.get_task_logic_module()
-        task_logic_configs = self.config.get('task_logic_config', {})
-        return task_logic_configs.get(logic_name, {})
+        return self.config.get('task_logic_config', {})
 
     def get_config_summary(self) -> Dict[str, Any]:
         """Get a summary of current configuration for display"""

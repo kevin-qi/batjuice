@@ -316,6 +316,10 @@ class TaskLogicLegacyWrapper:
         """Legacy compatibility - get adapter config"""
         return self.adapter.get_config()
     
+    def get_parameters(self):
+        """Legacy compatibility - alias for get_task_parameters"""
+        return self.get_task_parameters()
+    
     def update_bat_state_after_reward(self, system_state, bat_id, feeder_id):
         """Legacy compatibility - no-op for now"""
         pass
@@ -323,6 +327,10 @@ class TaskLogicLegacyWrapper:
     def reload_task_config(self):
         """Legacy compatibility - reload adapter"""
         self.adapter.reload_logic()
+    
+    def reload_config(self):
+        """Legacy compatibility - alias for reload_task_config"""
+        self.reload_task_config()
     
     def save_task_config(self):
         """Legacy compatibility - no-op for now"""
@@ -336,19 +344,18 @@ task_logic = None
 def initialize_task_logic(settings=None):
     """Initialize the global task logic instance with adapter"""
     global task_logic
-    
-    # Get task logic configuration
-    logic_module = "standard"  # default
+
+    # Get task logic path and configuration from settings
+    logic_path = None
     logic_config = {}
-    
+
     if settings:
-        # Try to get task logic from settings (for future config system)
-        logic_module = getattr(settings, 'get_task_logic_module', lambda: "standard")()
-        logic_config = getattr(settings, 'get_task_logic_config', lambda: {})()
-    
+        logic_path = settings.get_task_logic_path()
+        logic_config = settings.get_task_logic_config()
+
     # Create adapter-based task logic
     from .adapter import TaskLogicAdapter
-    adapter = TaskLogicAdapter(logic_module, logic_config)
+    adapter = TaskLogicAdapter(logic_path, logic_config)
     task_logic = TaskLogicLegacyWrapper(adapter)
     return task_logic
 

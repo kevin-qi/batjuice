@@ -5,9 +5,8 @@
     "bat_ids": ["Bat_001"],
     "tag_ids": [1],
     "loop_data": true,
-    "description": "Stream real experimental data from flight_positions.npy"
+    "description": "Stream real experimental data from flight_positions.npy for testing"
   },
-  
   "mock_arduino": {
     "log_file": "mock_arduino.txt",
     "description": "Log Arduino communication to file instead of using hardware"

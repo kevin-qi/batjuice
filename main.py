@@ -96,7 +96,9 @@ class BatFeederSystem:
         try:
             if self.mock_rtls:
                 # Use real experimental data for mock mode
-                mock_config = self.settings.get_mock_config()
+                mock_rtls_config = self.settings.get_mock_rtls_config()
+                mock_arduino_config = self.settings.get_mock_arduino_config()
+                mock_config = {'mock_rtls': mock_rtls_config, 'mock_arduino': mock_arduino_config}
                 self.position_tracker = MockTracker(
                     mock_config,
                     callback=self._on_position_update
@@ -123,8 +125,11 @@ class BatFeederSystem:
                     print("Using Ciholas UWB system")
                 else:
                     # Fallback to mock tracker for unknown systems
+                    mock_rtls_config = self.settings.get_mock_rtls_config()
+                    mock_arduino_config = self.settings.get_mock_arduino_config()
+                    mock_config = {'mock_rtls': mock_rtls_config, 'mock_arduino': mock_arduino_config}
                     self.position_tracker = MockTracker(
-                        self.settings.get_mock_config(),
+                        mock_config,
                         callback=self._on_position_update
                     )
             
@@ -332,9 +337,9 @@ class BatFeederSystem:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='Bat Feeder Control System')
-    parser.add_argument('--config', '-c', 
-                       default='config/user_config.json',
-                       help='Configuration file path (default: config/user_config.json)')
+    parser.add_argument('--config', '-c',
+                       default='Kevin/proximity_study',
+                       help='Experiment config name (default: Kevin/proximity_study)')
     parser.add_argument('--mock', action='store_true', 
                        help='Run in full mock mode (both Arduino and RTLS)')
     parser.add_argument('--mock-arduino', action='store_true',
