@@ -361,7 +361,8 @@ def main():
         if args.validate:
             print(f"Configuration file '{args.config}' is valid!")
             print("Loaded experiment:", settings.config.get('experiment', {}).get('name', 'Unnamed'))
-            print("Task logic:", settings.get_task_logic_module())
+            task_logic_path = settings.get_task_logic_path()
+            print("Task logic:", task_logic_path if task_logic_path else "default (built-in)")
             return 0
             
     except ConfigurationError as e:

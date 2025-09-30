@@ -59,14 +59,6 @@ class FeederController:
             'rewards_denied': 0,
             'start_time': time.time()
         }
-        
-        # Initialize task logic configuration  
-        try:
-            from task_logic.task_logic import reload_task_config
-            result = reload_task_config()
-            print(f"Task logic: {result}")
-        except Exception as e:
-            print(f"Warning: Could not load task logic config: {e}")
     
     def set_position_change_callback(self, callback):
         """Set callback to notify when feeder positions change"""

@@ -104,11 +104,11 @@ class TaskLogicAdapter:
             
             feeder_info = FeederInfo(
                 id=feeder_id,
-                position=(feeder_state.x_position, feeder_state.y_position, feeder_state.z_position),
+                position=feeder_state.position,
                 is_available=feeder_state.owner_bat_id is None,
                 activation_radius=feeder_state.activation_radius,
                 duration_ms=feeder_state.duration_ms,
-                probability=feeder_state.probability
+                probability=1.0  # Default probability
             )
             
             trigger_event = TriggerEvent(
@@ -133,9 +133,9 @@ class TaskLogicAdapter:
     
     def _calculate_time_since_last_reward(self, bat_state, current_time) -> float:
         """Calculate time since last reward"""
-        if bat_state.last_reward_timestamp is None:
+        if bat_state.last_reward_time is None:
             return None
-        return current_time - bat_state.last_reward_timestamp
+        return current_time - bat_state.last_reward_time
     
     def reload_logic(self, logic_path: str = None, config: dict = None):
         """Reload logic module from file path (useful for testing)"""

@@ -415,21 +415,22 @@ class ComprehensiveConfigDisplay:
     def _update_task_logic_values(self):
         """Update task logic configuration values"""
         try:
-            # Import and get actual runtime values
-            from task_logic import get_task_parameters
-            task_params = get_task_parameters()
-            
-            self.config_vars['task_reactivation_distance'].set(f"{task_params.get('reactivation_distance', 'Error')} m")
-            self.config_vars['task_reactivation_time'].set(f"{task_params.get('reactivation_time', 'Error')} s")
-            self.config_vars['task_feeder_ownership_distance'].set(f"{task_params.get('feeder_ownership_distance', 'Error')} m")
-            self.config_vars['task_position_timeout'].set(f"{task_params.get('position_timeout', 'Error')} s")
-            self.config_vars['task_config_file'].set("config/task_logic_config.json")
-            
+            # Get task logic configuration from settings
+            task_config = self.settings.get_task_logic_config()
+            task_logic_path = self.settings.get_task_logic_path()
+
+            # Note: Distance parameters are now per-feeder, not global
+            self.config_vars['task_reactivation_distance'].set("Per-feeder setting")
+            self.config_vars['task_reactivation_time'].set(f"{task_config.get('reactivation_time', 'N/A')} s")
+            self.config_vars['task_feeder_ownership_distance'].set("Per-feeder setting")
+            self.config_vars['task_position_timeout'].set(f"{task_config.get('position_timeout', 'N/A')} s")
+            self.config_vars['task_config_file'].set(task_logic_path if task_logic_path else "default (built-in)")
+
         except Exception as e:
             print(f"Error updating task logic values: {e}")
             self.config_vars['task_reactivation_distance'].set("Error loading")
             self.config_vars['task_reactivation_time'].set("Error loading")
-            self.config_vars['task_feeder_ownership_distance'].set("Error loading") 
+            self.config_vars['task_feeder_ownership_distance'].set("Error loading")
             self.config_vars['task_position_timeout'].set("Error loading")
             self.config_vars['task_config_file'].set("Error loading")
     
