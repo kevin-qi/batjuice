@@ -297,53 +297,13 @@ class TaskLogic:
         return math.sqrt(dx*dx + dy*dy + dz*dz)
 
 
-class TaskLogicLegacyWrapper:
-    """Legacy wrapper to maintain compatibility with existing system"""
-    
-    def __init__(self, adapter):
-        self.adapter = adapter
-        self.reactivation_time = 0.2  # Legacy compatibility
-    
-    def should_deliver_reward(self, system_state, feeder_id, triggering_bat_id):
-        """Legacy compatibility wrapper"""
-        return self.adapter.should_deliver_reward(system_state, feeder_id, triggering_bat_id)
-    
-    def update_task_parameters(self, **kwargs):
-        """Legacy compatibility - update adapter config"""
-        self.adapter.update_config(kwargs)
-    
-    def get_task_parameters(self):
-        """Legacy compatibility - get adapter config"""
-        return self.adapter.get_config()
-    
-    def get_parameters(self):
-        """Legacy compatibility - alias for get_task_parameters"""
-        return self.get_task_parameters()
-    
-    def update_bat_state_after_reward(self, system_state, bat_id, feeder_id):
-        """Legacy compatibility - no-op for now"""
-        pass
-    
-    def reload_task_config(self):
-        """Legacy compatibility - reload adapter"""
-        self.adapter.reload_logic()
-    
-    def reload_config(self):
-        """Legacy compatibility - alias for reload_task_config"""
-        self.reload_task_config()
-    
-    def save_task_config(self):
-        """Legacy compatibility - no-op for now"""
-        pass
-
-
 # Global instance - single source of truth for task logic
 # Will be initialized with settings object when available
-task_logic = None
+task_logic_adapter = None
 
 def initialize_task_logic(settings=None):
-    """Initialize the global task logic instance with adapter"""
-    global task_logic
+    """Initialize the global task logic adapter"""
+    global task_logic_adapter
 
     # Get task logic path and configuration from settings
     logic_path = None
@@ -353,52 +313,25 @@ def initialize_task_logic(settings=None):
         logic_path = settings.get_task_logic_path()
         logic_config = settings.get_task_logic_config()
 
-    # Create adapter-based task logic
+    # Create task logic adapter
     from .adapter import TaskLogicAdapter
-    adapter = TaskLogicAdapter(logic_path, logic_config)
-    task_logic = TaskLogicLegacyWrapper(adapter)
-    return task_logic
+    task_logic_adapter = TaskLogicAdapter(logic_path, logic_config)
+    return task_logic_adapter
 
 
-# Convenience functions for backward compatibility
-def should_deliver_reward(system_state: SystemState, feeder_id: int, 
+# Public API functions
+def should_deliver_reward(system_state: SystemState, feeder_id: int,
                          triggering_bat_id: str) -> Tuple[bool, str]:
     """Main entry point for reward decisions"""
-    if task_logic is None:
+    if task_logic_adapter is None:
         initialize_task_logic()
-    return task_logic.should_deliver_reward(system_state, feeder_id, triggering_bat_id)
-
-
-def update_task_parameters(**kwargs) -> str:
-    """Update task logic parameters"""
-    if task_logic is None:
-        initialize_task_logic()
-    return task_logic.update_parameters(**kwargs)
-
-
-def get_task_parameters() -> Dict[str, Any]:
-    """Get current task logic parameters"""
-    if task_logic is None:
-        initialize_task_logic()
-    return task_logic.get_parameters()
+    return task_logic_adapter.should_deliver_reward(system_state, feeder_id, triggering_bat_id)
 
 
 def update_bat_state_after_reward(system_state: SystemState, feeder_id: int, bat_id: str):
     """Update bat state after successful reward delivery"""
-    if task_logic is None:
-        initialize_task_logic()
+    # This is now handled inside the TaskLogic class automatically
+    # Kept for backward compatibility but delegates to core logic
+    from .task_logic import TaskLogic
+    task_logic = TaskLogic()
     task_logic.update_bat_state_after_reward(system_state, feeder_id, bat_id)
-
-
-def reload_task_config() -> str:
-    """Reload task configuration from user_config.json"""
-    if task_logic is None:
-        initialize_task_logic()
-    return task_logic.reload_config()
-
-
-def save_task_config():
-    """Save current task configuration to user_config.json"""
-    if task_logic is None:
-        initialize_task_logic()
-    task_logic.save_config()

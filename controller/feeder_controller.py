@@ -12,7 +12,7 @@ import threading
 import math
 from typing import Dict, Optional, Callable
 from utils.data_structures import Position, RewardEvent
-from utils.decorators import safe_operation
+# Removed utils.decorators import - inlined single usage
 from task_logic.system_state import SystemState
 from task_logic.task_logic import should_deliver_reward, update_bat_state_after_reward
 
@@ -30,7 +30,7 @@ class FeederController:
                  data_logger=None):
         """
         Initialize feeder controller.
-        
+
         Args:
             feeder_configs: List of feeder configurations
             arduino_controller: Arduino controller instance
@@ -40,6 +40,9 @@ class FeederController:
         self.arduino = arduino_controller
         self.reward_callback = reward_callback
         self.data_logger = data_logger
+        
+        # Position change callback for GUI updates
+        self.position_change_callback = None
         
         # Initialize system state
         self.system_state = SystemState()
@@ -65,8 +68,15 @@ class FeederController:
         except Exception as e:
             print(f"Warning: Could not load task logic config: {e}")
     
+    def set_position_change_callback(self, callback):
+        """Set callback to notify when feeder positions change"""
+        self.position_change_callback = callback
+    
     def _initialize_feeders(self, feeder_configs: list):
         """Initialize feeders from configuration"""
+        # Store feeder configs for position management
+        self.feeder_configs = {config.feeder_id: config for config in feeder_configs}
+        
         for config in feeder_configs:
             self.system_state.add_feeder(
                 feeder_id=config.feeder_id,
@@ -78,6 +88,82 @@ class FeederController:
                 motor_speed=config.speed
             )
     
+    def change_feeder_position(self, feeder_id: int, position_index: int) -> bool:
+        """
+        Change a feeder's position and update system state
+        
+        Args:
+            feeder_id: ID of the feeder to move
+            position_index: Index of the new position
+            
+        Returns:
+            bool: True if position change was successful
+        """
+        if feeder_id not in self.feeder_configs:
+            print(f"Error: Unknown feeder ID {feeder_id}")
+            return False
+        
+        feeder_config = self.feeder_configs[feeder_id]
+        old_position_index = feeder_config.current_position_index
+        
+        if not feeder_config.set_position(position_index):
+            print(f"Error: Invalid position index {position_index} for feeder {feeder_id}")
+            return False
+        
+        # Update system state feeder position
+        if feeder_id in self.system_state.feeders:
+            feeder_state = self.system_state.feeders[feeder_id]
+            new_coords = feeder_config.get_current_position()
+            feeder_state.x_position, feeder_state.y_position, feeder_state.z_position = new_coords
+            feeder_state.position = new_coords
+            
+            print(f"Feeder {feeder_id} moved to position '{feeder_config.get_position_name()}' at {new_coords}")
+            
+            # Log the position change
+            if self.data_logger:
+                import time
+                self.data_logger.log_feeder_position_change(
+                    feeder_id=feeder_id,
+                    old_position_index=old_position_index,
+                    new_position_index=position_index,
+                    position_name=feeder_config.get_position_name(),
+                    coordinates=new_coords,
+                    timestamp=time.time()
+                )
+            
+            # Notify GUI of position change
+            if self.position_change_callback:
+                try:
+                    self.position_change_callback(list(self.feeder_configs.values()))
+                except Exception as e:
+                    print(f"Error in position change callback: {e}")
+            
+            return True
+        
+        return False
+    
+    def get_feeder_position_options(self, feeder_id: int) -> list:
+        """
+        Get available position options for a feeder
+        
+        Args:
+            feeder_id: ID of the feeder
+            
+        Returns:
+            list: List of position configurations with name, coordinates, description
+        """
+        if feeder_id not in self.feeder_configs:
+            return []
+        
+        feeder_config = self.feeder_configs[feeder_id]
+        return feeder_config.available_positions or []
+    
+    def get_current_feeder_position_index(self, feeder_id: int) -> int:
+        """Get current position index for a feeder"""
+        if feeder_id not in self.feeder_configs:
+            return 0
+        return self.feeder_configs[feeder_id].current_position_index
+
     def start(self):
         """Start the feeder control system"""
         if self.running:
@@ -205,7 +291,6 @@ class FeederController:
         else:
             self.stats['rewards_denied'] += 1
     
-    @safe_operation(default_return=None)
     def _find_closest_bat_to_feeder(self, feeder_id: int) -> Optional[str]:
         """
         Find the closest bat to a feeder that's within triggering distance.

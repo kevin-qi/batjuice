@@ -73,24 +73,62 @@ class ConfigurationValidator:
         room_boundaries = config.get('room', {}).get('boundaries', {})
         
         for i, feeder in enumerate(feeders):
-            # Check required fields
-            required_fields = ['id', 'position', 'activation_radius']
-            for field in required_fields:
-                if field not in feeder:
-                    errors.append(f"Feeder {i}: Missing required field '{field}'")
+            feeder_id = feeder.get('id')
             
             # Check for duplicate IDs
-            feeder_id = feeder.get('id')
             if feeder_id in feeder_ids:
                 errors.append(f"Duplicate feeder ID: {feeder_id}")
             feeder_ids.add(feeder_id)
             
-            # Validate position is within room boundaries
-            position = feeder.get('position', [])
-            if len(position) != 3:
-                errors.append(f"Feeder {feeder_id}: Position must be [x, y, z]")
-            elif room_boundaries:
-                self._validate_position_in_room(feeder_id, position, room_boundaries, errors)
+            # Support both old single position format and new multiple positions format
+            if 'position' in feeder:
+                # Old format - single position
+                required_fields = ['id', 'position', 'activation_radius']
+                for field in required_fields:
+                    if field not in feeder:
+                        errors.append(f"Feeder {feeder_id}: Missing required field '{field}'")
+                
+                position = feeder.get('position', [])
+                if len(position) != 3:
+                    errors.append(f"Feeder {feeder_id}: Position must be [x, y, z]")
+                elif room_boundaries:
+                    self._validate_position_in_room(feeder_id, position, room_boundaries, errors)
+            
+            elif 'positions' in feeder:
+                # New format - multiple positions
+                required_fields = ['id', 'positions', 'default_position', 'activation_radius']
+                for field in required_fields:
+                    if field not in feeder:
+                        errors.append(f"Feeder {feeder_id}: Missing required field '{field}'")
+                
+                positions = feeder.get('positions', [])
+                if not positions:
+                    errors.append(f"Feeder {feeder_id}: No positions defined")
+                    continue
+                
+                default_pos = feeder.get('default_position', 0)
+                if default_pos < 0 or default_pos >= len(positions):
+                    errors.append(f"Feeder {feeder_id}: default_position {default_pos} out of range (0-{len(positions)-1})")
+                
+                # Validate each position
+                for j, pos_config in enumerate(positions):
+                    if not isinstance(pos_config, dict):
+                        errors.append(f"Feeder {feeder_id}, position {j}: Must be an object with name, coordinates, description")
+                        continue
+                    
+                    pos_required = ['name', 'coordinates']
+                    for field in pos_required:
+                        if field not in pos_config:
+                            errors.append(f"Feeder {feeder_id}, position {j}: Missing '{field}'")
+                    
+                    coordinates = pos_config.get('coordinates', [])
+                    if len(coordinates) != 3:
+                        errors.append(f"Feeder {feeder_id}, position {j}: Coordinates must be [x, y, z]")
+                    elif room_boundaries:
+                        self._validate_position_in_room(f"{feeder_id}_pos{j}", coordinates, room_boundaries, errors)
+            
+            else:
+                errors.append(f"Feeder {feeder_id}: Must have either 'position' (single) or 'positions' (multiple)")
     
     def _validate_room_config(self, config: Dict[str, Any], errors: List[str]):
         """Validate room configuration"""

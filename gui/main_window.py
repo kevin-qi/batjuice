@@ -120,6 +120,9 @@ class MainWindow:
         feeder_configs = self.settings.get_feeder_configs()
         self.flight_display = FlightDisplay3D(flight_frame, self.settings.get_gui_config(), 
                                             room_config, feeder_configs)
+        
+        # Set up position change callback to update flight display
+        self.feeder_controller.set_position_change_callback(self._on_feeder_position_changed)
     
     def _setup_comprehensive_config_tab(self, parent):
         """Setup the comprehensive configuration display tab"""
@@ -239,6 +242,21 @@ class MainWindow:
         """Show info dialog"""
         messagebox.showinfo(title, message)
     
+    def _on_feeder_position_changed(self, updated_feeder_configs):
+        """Handle feeder position changes - update flight display and feeder panel"""
+        try:
+            # Update flight display with new feeder positions
+            if hasattr(self, 'flight_display'):
+                self.flight_display.update_feeder_positions(updated_feeder_configs)
+            
+            # Update feeder panel displays
+            if hasattr(self, 'feeder_panel'):
+                for feeder_config in updated_feeder_configs:
+                    self.feeder_panel._update_position_display(feeder_config.feeder_id)
+                    
+        except Exception as e:
+            self.event_logger.error(f"Error handling feeder position change: {e}")
+
     def _on_closing(self):
         """Handle window close event"""
         if messagebox.askokcancel("Quit", "Do you want to quit the application?"):

@@ -206,6 +206,35 @@ class DataLogger:
         except Exception as e:
             print(f"Error logging session end: {e}")
 
+    
+    def log_feeder_position_change(self, feeder_id: int, old_position_index: int, 
+                                  new_position_index: int, position_name: str, 
+                                  coordinates: tuple, timestamp: float = None):
+        """Log feeder position change event"""
+        if not self.files_initialized:
+            return
+            
+        if timestamp is None:
+            timestamp = time.time()
+            
+        try:
+            with open(self.events_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                details = f"from_idx:{old_position_index} to_idx:{new_position_index} name:{position_name} coords:{coordinates}"
+                writer.writerow([
+                    timestamp,
+                    'feeder_position_change',
+                    feeder_id,
+                    '',  # bat_id empty for feeder events
+                    False,  # manual = False (system triggered)
+                    '',  # duration_ms empty for position changes
+                    details  # details contains position change info
+                ])
+                f.flush()  # Force write to disk immediately
+            print(f"Logged feeder position change: feeder_{feeder_id} -> {position_name}")
+        except Exception as e:
+            print(f"Error logging feeder position change: {e}")
+
     def log_config_change(self, feeder_configs: List[FeederConfig], 
                          change_description: str = ""):
         """Log configuration changes"""

@@ -212,6 +212,53 @@ class FeederPanel:
         reward_label.pack(side=tk.LEFT, padx=(5, 0))
         self.feeder_vars[feeder_id]['reward_label'] = reward_label
         
+        # Position selection frame (NEW)
+        position_frame = ttk.LabelFrame(feeder_frame, text="Position Control", padding=5)
+        position_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        # Current position display
+        current_pos_frame = ttk.Frame(position_frame)
+        current_pos_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(current_pos_frame, text="Current:").pack(side=tk.LEFT)
+        current_pos_label = ttk.Label(current_pos_frame, text=feeder_config.get_position_name(), 
+                                     font=('TkDefaultFont', 9, 'bold'), foreground="blue")
+        current_pos_label.pack(side=tk.LEFT, padx=(5, 10))
+        self.feeder_vars[feeder_id]['current_pos_label'] = current_pos_label
+        
+        # Coordinates display
+        coords = feeder_config.get_current_position()
+        coords_text = f"({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})"
+        coords_label = ttk.Label(current_pos_frame, text=coords_text, foreground="gray")
+        coords_label.pack(side=tk.LEFT)
+        self.feeder_vars[feeder_id]['coords_label'] = coords_label
+        
+        # Position selection
+        selection_frame = ttk.Frame(position_frame)
+        selection_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(selection_frame, text="Change to:").pack(side=tk.LEFT)
+        
+        # Get available positions
+        position_options = feeder_config.available_positions or []
+        position_names = [pos['name'] for pos in position_options]
+        
+        if position_names:
+            position_var = tk.StringVar(value=position_names[feeder_config.current_position_index])
+            position_combo = ttk.Combobox(selection_frame, textvariable=position_var, 
+                                        values=position_names, state="readonly", width=20)
+            position_combo.pack(side=tk.LEFT, padx=(5, 10))
+            self.feeder_vars[feeder_id]['position_var'] = position_var
+            self.feeder_vars[feeder_id]['position_combo'] = position_combo
+            
+            # Move button
+            move_btn = ttk.Button(selection_frame, text="Move Feeder", 
+                                command=lambda: self._move_feeder_position(feeder_id))
+            move_btn.pack(side=tk.LEFT)
+            self.feeder_vars[feeder_id]['move_btn'] = move_btn
+        else:
+            # Single position - show message
+            ttk.Label(selection_frame, text="Single position configured", 
+                     foreground="gray").pack(side=tk.LEFT, padx=(5, 0))
+        
         # Configuration frame with current vs pending values
         config_frame = ttk.LabelFrame(feeder_frame, text="Configuration", padding=5)
         config_frame.pack(fill=tk.X, pady=(5, 0))
@@ -463,6 +510,66 @@ class FeederPanel:
                     self.event_logger.warning(f"Motor test failed for feeder {feeder_id}")
         except Exception as e:
             self.event_logger.error(f"Error testing motor: {e}")
+
+    
+    def _move_feeder_position(self, feeder_id):
+        """Move feeder to selected position"""
+        try:
+            position_var = self.feeder_vars[feeder_id]['position_var']
+            selected_name = position_var.get()
+            
+            # Find the index of the selected position
+            feeder_config = self.feeder_controller.feeder_configs[feeder_id]
+            position_options = feeder_config.available_positions or []
+            
+            selected_index = None
+            for i, pos_config in enumerate(position_options):
+                if pos_config['name'] == selected_name:
+                    selected_index = i
+                    break
+            
+            if selected_index is None:
+                print(f"Error: Could not find position '{selected_name}' for feeder {feeder_id}")
+                return
+            
+            # Check if already at this position
+            if selected_index == feeder_config.current_position_index:
+                print(f"Feeder {feeder_id} is already at position '{selected_name}'")
+                return
+            
+            # Move the feeder
+            if self.feeder_controller.change_feeder_position(feeder_id, selected_index):
+                # Update GUI display
+                self._update_position_display(feeder_id)
+                print(f"Successfully moved feeder {feeder_id} to '{selected_name}'")
+            else:
+                print(f"Failed to move feeder {feeder_id} to '{selected_name}'")
+                
+        except Exception as e:
+            print(f"Error moving feeder {feeder_id}: {e}")
+    
+    def _update_position_display(self, feeder_id):
+        """Update the position display for a feeder"""
+        try:
+            feeder_config = self.feeder_controller.feeder_configs[feeder_id]
+            feeder_vars = self.feeder_vars[feeder_id]
+            
+            # Update current position label
+            if 'current_pos_label' in feeder_vars:
+                feeder_vars['current_pos_label'].config(text=feeder_config.get_position_name())
+            
+            # Update coordinates display
+            if 'coords_label' in feeder_vars:
+                coords = feeder_config.get_current_position()
+                coords_text = f"({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})"
+                feeder_vars['coords_label'].config(text=coords_text)
+            
+            # Update dropdown selection
+            if 'position_var' in feeder_vars:
+                feeder_vars['position_var'].set(feeder_config.get_position_name())
+                
+        except Exception as e:
+            print(f"Error updating position display for feeder {feeder_id}: {e}")
     
     def start_updates(self):
         """Start update thread"""

@@ -168,17 +168,20 @@ class FlightDisplay3D:
             self.ax.plot([x, x], [y, y], [z_min, z_max], 'k-', alpha=0.3, linewidth=1)
     
     def _draw_feeders(self):
-        """Draw feeder positions"""
+        """Draw feeder positions using current dynamic positions"""
         for feeder in self.feeder_configs:
-            x, y, z = feeder.x_position, feeder.y_position, feeder.z_position
+            # Use current position instead of static x,y,z
+            x, y, z = feeder.get_current_position()
             
             # Draw feeder as a larger marker
             self.ax.scatter([x], [y], [z], c='red', s=200, marker='s', 
                           alpha=0.8, edgecolors='black', linewidth=2)
             
-            # Add feeder label
-            self.ax.text(x, y, z + 0.1, f'F{feeder.feeder_id}', 
-                        fontsize=10, fontweight='bold')
+            # Add feeder label with position name
+            position_name = feeder.get_position_name()
+            label = f'F{feeder.feeder_id}\n{position_name}'
+            self.ax.text(x, y, z + 0.1, label, 
+                        fontsize=9, fontweight='bold', ha='center')
             
             # Draw activation zone (sphere)
             activation_radius = feeder.activation_radius
@@ -190,6 +193,25 @@ class FlightDisplay3D:
             
             self.ax.plot_surface(x_sphere, y_sphere, z_sphere, 
                                alpha=0.1, color='red', linewidth=0)
+
+    
+    def update_feeder_positions(self, updated_feeder_configs):
+        """
+        Update feeder positions in the display
+        
+        Args:
+            updated_feeder_configs: List of updated FeederConfig objects
+        """
+        self.feeder_configs = updated_feeder_configs
+        
+        # Force redraw of static elements (including feeders)
+        self.static_elements_drawn = False
+        
+        # Schedule a redraw on the next update
+        if hasattr(self, '_schedule_redraw'):
+            self._schedule_redraw = True
+        
+        print("Flight display: Feeder positions updated")
     
     def update_positions(self, bat_states: Dict):
         """Update flight paths with new position data (subsampled for display)"""
