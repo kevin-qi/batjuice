@@ -1,0 +1,96 @@
+{
+  // ============================================================================
+  // FREQUENTLY MODIFIED SECTIONS
+  // These are the settings you'll most likely change between experiments
+  // ============================================================================
+
+  "experiment": {
+    "name": "proximity_study",              // Identifier for this experiment (used in filenames)
+    "description": "Testing proximity-based reward delivery with configurable distance thresholds"
+  },
+
+  "logging": {
+    "data_directory": "data",               // Where to save data files (uses YYYYMMDD_HHMMSS_* naming)
+    "log_level": "INFO",                    // Logging verbosity: DEBUG, INFO, WARNING, ERROR
+    "auto_save_interval_seconds": 30        // How often to flush data to disk
+  },
+
+  "feeders": [
+    {
+      "id": 0,                              // Unique feeder identifier (matches Arduino pin)
+      "position": [2.45, 1.3, 1.5],        // [x, y, z] coordinates in meters
+      "activation_radius": 0.8,             // Max distance (m) for bat to trigger beam break
+      "reactivation_distance": 3.0,         // Distance (m) bat must fly to become eligible again
+      "duration_ms": 100,                   // Motor run time in milliseconds
+      "speed": 255,                         // Motor speed (0-255, 255 = full speed)
+      "probability": 1.0,                   // Reward probability (0.0-1.0, 1.0 = always reward)
+      "description": "Feeder 0 - Left side" // Human-readable description
+    },
+    {
+      "id": 1,
+      "position": [2.45, -1.3, 1.5],
+      "activation_radius": 0.8,
+      "reactivation_distance": 3.0,
+      "duration_ms": 100,
+      "speed": 255,
+      "probability": 1.0,
+      "description": "Feeder 1 - Right side"
+    }
+  ],
+
+  "rtls_system": {
+    "backend": "ciholas"                    // Position tracking system: "cortex", "ciholas", or "mock"
+  },
+
+  // ============================================================================
+  // RARELY MODIFIED SECTIONS
+  // These are hardware/system settings that typically stay constant
+  // ============================================================================
+
+  "room": {
+    "boundaries": {
+      "x_min": -2.9,                        // Room boundaries in meters (for visualization)
+      "x_max": 2.9,
+      "y_min": -2.6,
+      "y_max": 2.6,
+      "z_min": 0.0,
+      "z_max": 2.5
+    },
+    "units": "meters"                       // Unit system for room coordinates
+  },
+
+  "gui": {
+    "update_rate_hz": 30,                   // Main GUI refresh rate
+    "plot_update_rate_hz": 10,              // 3D flight path update rate
+    "max_flight_points": 10000,             // Max position points to store per bat
+    "flight_trail_fade_samples": 200,       // How many recent points to show in trail
+    "bat_panel_update_interval": 0.2,       // Bat status panel update interval (seconds)
+    "flight_display_update_interval": 0.1,  // Flight display update interval (seconds)
+    "max_activation_radius": 5.0,           // Max allowed activation radius in GUI (meters)
+    "stationary_threshold": 0.5,            // Movement threshold to detect stationary bats (m/s)
+    "position_timeout_gui": 1.0             // Show bat as lost after this many seconds
+  },
+
+  "arduino": {
+    "port": "COM3",                         // Serial port for Arduino (e.g., COM3 on Windows, /dev/ttyUSB0 on Linux)
+    "baudrate": 9600,                       // Serial communication speed (must match Arduino sketch)
+    "timeout": 1.0                          // Serial read timeout in seconds
+  },
+
+  "cortex": {
+    "server_ip": "127.0.0.1",              // Cortex server IP address
+    "server_port": 1001,                    // Cortex SDK streaming port
+    "timeout": 5.0,                         // Connection timeout in seconds
+    "frame_rate": 120                       // Expected frame rate from Cortex (Hz)
+  },
+
+  "ciholas": {
+    "multicast_group": "239.255.76.67",    // UDP multicast address for Ciholas data
+    "local_port": 7667,                     // UDP port to listen on
+    "timeout": 20,                          // Connection timeout in seconds
+    "frame_rate": 100,                      // Expected frame rate from Ciholas (Hz)
+    "serial_numbers": [12345, 12346, 12347, 12348],  // UWB tag serial numbers
+    "coordinate_units": "mm",               // Units from Ciholas system (mm or m)
+    "coordinate_scale": 10.0                // Scale factor to convert to meters (10.0 for mm->m)
+  }
+}

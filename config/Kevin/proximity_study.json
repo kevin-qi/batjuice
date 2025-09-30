@@ -1,37 +1,17 @@
 {
+  "//": "=== FREQUENTLY MODIFIED SECTIONS ===",
+
   "experiment": {
     "name": "proximity_study",
     "description": "Testing proximity-based reward delivery with configurable distance thresholds"
   },
-  "rtls_system": {
-    "backend": "ciholas"
+
+  "logging": {
+    "data_directory": "data",
+    "log_level": "INFO",
+    "auto_save_interval_seconds": 30
   },
-  "cortex": {
-    "server_ip": "127.0.0.1",
-    "server_port": 1001,
-    "timeout": 5.0,
-    "frame_rate": 120
-  },
-  "ciholas": {
-    "multicast_group": "239.255.76.67",
-    "local_port": 7667,
-    "timeout": 20,
-    "frame_rate": 100,
-    "serial_numbers": [12345, 12346, 12347, 12348],
-    "coordinate_units": "mm",
-    "coordinate_scale": 10.0
-  },
-  "room": {
-    "boundaries": {
-      "x_min": -2.9,
-      "x_max": 2.9,
-      "y_min": -2.6,
-      "y_max": 2.6,
-      "z_min": 0.0,
-      "z_max": 2.5
-    },
-    "units": "meters"
-  },
+
   "feeders": [
     {
       "id": 0,
@@ -54,11 +34,25 @@
       "description": "Feeder 1 - Right side"
     }
   ],
-  "arduino": {
-    "port": "COM3",
-    "baudrate": 9600,
-    "timeout": 1.0
+
+  "rtls_system": {
+    "backend": "ciholas"
   },
+
+  "//": "=== RARELY MODIFIED SECTIONS ===",
+
+  "room": {
+    "boundaries": {
+      "x_min": -2.9,
+      "x_max": 2.9,
+      "y_min": -2.6,
+      "y_max": 2.6,
+      "z_min": 0.0,
+      "z_max": 2.5
+    },
+    "units": "meters"
+  },
+
   "gui": {
     "update_rate_hz": 30,
     "plot_update_rate_hz": 10,
@@ -70,9 +64,27 @@
     "stationary_threshold": 0.5,
     "position_timeout_gui": 1.0
   },
-  "logging": {
-    "data_directory": "data",
-    "log_level": "INFO",
-    "auto_save_interval_seconds": 30
+
+  "arduino": {
+    "port": "COM3",
+    "baudrate": 9600,
+    "timeout": 1.0
+  },
+
+  "cortex": {
+    "server_ip": "127.0.0.1",
+    "server_port": 1001,
+    "timeout": 5.0,
+    "frame_rate": 120
+  },
+
+  "ciholas": {
+    "multicast_group": "239.255.76.67",
+    "local_port": 7667,
+    "timeout": 20,
+    "frame_rate": 100,
+    "serial_numbers": [12345, 12346, 12347, 12348],
+    "coordinate_units": "mm",
+    "coordinate_scale": 10.0
   }
 }
