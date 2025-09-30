@@ -267,9 +267,7 @@ class ComprehensiveConfigDisplay:
         row = self._create_config_item(self.scrollable_frame, row, "Logging Directory",
                                      "logging_directory", "Where data files are saved (uses YYYYMMDD_HHMMSS_* naming)")
         row = self._create_config_item(self.scrollable_frame, row, "Log Level",
-                                     "logging_level", "INFO, DEBUG, etc.")
-        row = self._create_config_item(self.scrollable_frame, row, "Auto Save Interval",
-                                     "logging_interval", "seconds")
+                                     "logging_level", "Console/file log verbosity (INFO, DEBUG, etc.)")
 
         return row
     
@@ -450,7 +448,6 @@ class ComprehensiveConfigDisplay:
             logging_config = self.settings.get_logging_config()
             self.config_vars['logging_directory'].set(logging_config.get('data_directory', 'Not set'))
             self.config_vars['logging_level'].set(logging_config.get('log_level', 'Not set'))
-            self.config_vars['logging_interval'].set(f"{logging_config.get('auto_save_interval_seconds', 'Not set')} s")
 
         except Exception as e:
             print(f"Error updating logging values: {e}")
