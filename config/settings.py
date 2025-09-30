@@ -210,10 +210,6 @@ class Settings:
         """Get logging configuration"""
         return self.config.get("logging", {})
 
-    def get_task_logic_config(self) -> Dict[str, Any]:
-        """Get task logic configuration"""
-        return self.config.get("task_logic", {})
-    
     def get_mock_rtls_config(self) -> Dict[str, Any]:
         """Get mock RTLS configuration (for testing only)"""
         mock_config = self._load_mock_config()
@@ -227,10 +223,6 @@ class Settings:
     def get_task_logic_path(self) -> Optional[str]:
         """Get path to task logic Python file (if paired file exists)"""
         return self.task_logic_path
-
-    def get_task_logic_config(self) -> Dict[str, Any]:
-        """Get configuration for the active task logic"""
-        return self.config.get('task_logic_config', {})
 
     def get_config_summary(self) -> Dict[str, Any]:
         """Get a summary of current configuration for display"""

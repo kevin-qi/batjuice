@@ -395,15 +395,14 @@ class ComprehensiveConfigDisplay:
     def _update_task_logic_values(self):
         """Update task logic configuration values"""
         try:
-            # Get task logic configuration from settings
-            task_config = self.settings.get_task_logic_config()
+            # Get task logic path - all parameters now come from feeder properties
             task_logic_path = self.settings.get_task_logic_path()
 
-            # Note: Distance parameters are now per-feeder, not global
-            self.config_vars['task_reactivation_distance'].set("Per-feeder setting")
-            self.config_vars['task_reactivation_time'].set(f"{task_config.get('reactivation_time', 'N/A')} s")
-            self.config_vars['task_feeder_ownership_distance'].set("Per-feeder setting")
-            self.config_vars['task_position_timeout'].set(f"{task_config.get('position_timeout', 'N/A')} s")
+            # All parameters are per-feeder, configured in feeders section
+            self.config_vars['task_reactivation_distance'].set("Per-feeder (see Feeders section)")
+            self.config_vars['task_reactivation_time'].set("N/A")
+            self.config_vars['task_feeder_ownership_distance'].set("Per-feeder (see Feeders section)")
+            self.config_vars['task_position_timeout'].set("N/A")
             self.config_vars['task_config_file'].set(task_logic_path if task_logic_path else "default (built-in)")
 
         except Exception as e:

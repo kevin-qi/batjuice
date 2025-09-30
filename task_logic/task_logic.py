@@ -305,17 +305,15 @@ def initialize_task_logic(settings=None):
     """Initialize the global task logic adapter"""
     global task_logic_adapter
 
-    # Get task logic path and configuration from settings
+    # Get task logic path from settings
+    # Config is now empty since all parameters come from feeder properties
     logic_path = None
-    logic_config = {}
-
     if settings:
         logic_path = settings.get_task_logic_path()
-        logic_config = settings.get_task_logic_config()
 
-    # Create task logic adapter
+    # Create task logic adapter with empty config (all params from feeder properties)
     from .adapter import TaskLogicAdapter
-    task_logic_adapter = TaskLogicAdapter(logic_path, logic_config)
+    task_logic_adapter = TaskLogicAdapter(logic_path, {})
     return task_logic_adapter
 
 

@@ -40,6 +40,7 @@
       "reactivation_distance": 3.0,
       "duration_ms": 100,
       "speed": 255,
+      "probability": 1.0,
       "description": "Feeder 0 - Left side"
     },
     {
@@ -49,13 +50,10 @@
       "reactivation_distance": 3.0,
       "duration_ms": 100,
       "speed": 255,
+      "probability": 1.0,
       "description": "Feeder 1 - Right side"
     }
   ],
-  "task_logic_config": {
-    "activation_radius": 0.8,
-    "reward_probability": 1.0
-  },
   "arduino": {
     "port": "COM3",
     "baudrate": 9600,
