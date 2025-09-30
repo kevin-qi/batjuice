@@ -122,9 +122,11 @@ class TaskLogicAdapter:
             should_reward = self.decide_reward(bat_info, feeder_info, trigger_event, self.config)
             
             if should_reward:
-                return True, f"Reward approved by {self.logic_module_name} logic"
+                logic_name = self.logic_path if self.logic_path else "default"
+                return True, f"Reward approved by task logic"
             else:
-                return False, f"Reward denied by {self.logic_module_name} logic"
+                logic_name = self.logic_path if self.logic_path else "default"
+                return False, f"Reward denied by task logic"
                 
         except Exception as e:
             return False, f"Error in task logic: {e}"
@@ -135,18 +137,17 @@ class TaskLogicAdapter:
             return None
         return current_time - bat_state.last_reward_timestamp
     
-    def reload_logic(self, logic_module: str = None, config: dict = None):
-        """Reload logic module (useful for testing)"""
-        if logic_module:
-            self.logic_module_name = logic_module
+    def reload_logic(self, logic_path: str = None, config: dict = None):
+        """Reload logic module from file path (useful for testing)"""
+        if logic_path:
+            self.logic_path = logic_path
         if config is not None:
             self.config = config
-        
-        # Clear module cache to force reload
-        module_path = f"task_logic.logics.{self.logic_module_name}"
-        if module_path in importlib.sys.modules:
-            del importlib.sys.modules[module_path]
-        
+
+        # Clear user_task_logic module from cache to force reload
+        if "user_task_logic" in sys.modules:
+            del sys.modules["user_task_logic"]
+
         self._load_logic_module()
     
     def get_config(self) -> dict:

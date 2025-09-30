@@ -490,9 +490,8 @@ class ComprehensiveConfigDisplay:
     def _update_mock_values(self):
         """Update mock configuration values"""
         try:
-            mock_config = self.settings.get_mock_config()
-            mock_rtls = mock_config.get('mock_rtls', {})
-            mock_arduino = mock_config.get('mock_arduino', {})
+            mock_rtls = self.settings.get_mock_rtls_config()
+            mock_arduino = self.settings.get_mock_arduino_config()
             
             self.config_vars['mock_rtls_file'].set(mock_rtls.get('data_file', 'Not set'))
             self.config_vars['mock_bat_count'].set(str(mock_rtls.get('bat_count', 'Not set')))
