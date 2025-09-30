@@ -103,10 +103,7 @@ class ComprehensiveConfigDisplay:
         
         # Logging Configuration  
         row = self._create_logging_section(row)
-        
-        # Session Configuration
-        row = self._create_session_section(row)
-        
+
         # Mock Configuration (if used)
         row = self._create_mock_section(row)
         
@@ -265,31 +262,17 @@ class ComprehensiveConfigDisplay:
     
     def _create_logging_section(self, row: int) -> int:
         """Create logging configuration section"""
-        row = self._create_section_header(self.scrollable_frame, row, "Data Logging")
+        row = self._create_section_header(self.scrollable_frame, row, "Logging")
         
-        row = self._create_config_item(self.scrollable_frame, row, "Data Directory", 
-                                     "logging_directory", "Where data files are saved")
-        row = self._create_config_item(self.scrollable_frame, row, "Session Prefix", 
-                                     "logging_prefix", "Prefix for session file names")
-        row = self._create_config_item(self.scrollable_frame, row, "Log Level", 
+        row = self._create_config_item(self.scrollable_frame, row, "Logging Directory",
+                                     "logging_directory", "Where data files are saved (uses YYYYMMDD_HHMMSS_* naming)")
+        row = self._create_config_item(self.scrollable_frame, row, "Log Level",
                                      "logging_level", "INFO, DEBUG, etc.")
-        row = self._create_config_item(self.scrollable_frame, row, "Auto Save Interval", 
+        row = self._create_config_item(self.scrollable_frame, row, "Auto Save Interval",
                                      "logging_interval", "seconds")
-        
+
         return row
     
-    def _create_session_section(self, row: int) -> int:
-        """Create session configuration section"""
-        row = self._create_section_header(self.scrollable_frame, row, "Session Defaults")
-        
-        row = self._create_config_item(self.scrollable_frame, row, "Default Session Name", 
-                                     "session_name")
-        row = self._create_config_item(self.scrollable_frame, row, "Default Researcher", 
-                                     "session_researcher")
-        row = self._create_config_item(self.scrollable_frame, row, "Default Experiment Type", 
-                                     "session_experiment_type")
-        
-        return row
     
     def _create_mock_section(self, row: int) -> int:
         """Create mock configuration section (if applicable)"""
@@ -346,10 +329,7 @@ class ComprehensiveConfigDisplay:
             
             # Logging Configuration
             self._update_logging_values()
-            
-            # Session Configuration
-            self._update_session_values()
-            
+
             # Mock Configuration
             self._update_mock_values()
             
@@ -470,23 +450,11 @@ class ComprehensiveConfigDisplay:
         try:
             logging_config = self.settings.get_logging_config()
             self.config_vars['logging_directory'].set(logging_config.get('data_directory', 'Not set'))
-            self.config_vars['logging_prefix'].set(logging_config.get('session_prefix', 'Not set'))
             self.config_vars['logging_level'].set(logging_config.get('log_level', 'Not set'))
             self.config_vars['logging_interval'].set(f"{logging_config.get('auto_save_interval_seconds', 'Not set')} s")
-            
+
         except Exception as e:
             print(f"Error updating logging values: {e}")
-    
-    def _update_session_values(self):
-        """Update session configuration values"""
-        try:
-            session_config = self.settings.get_session_config()
-            self.config_vars['session_name'].set(session_config.get('default_name', 'Not set'))
-            self.config_vars['session_researcher'].set(session_config.get('researcher', 'Not set'))
-            self.config_vars['session_experiment_type'].set(session_config.get('experiment_type', 'Not set'))
-            
-        except Exception as e:
-            print(f"Error updating session values: {e}")
     
     def _update_mock_values(self):
         """Update mock configuration values"""

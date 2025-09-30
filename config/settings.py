@@ -100,9 +100,8 @@ class Settings:
         # Apply logging defaults
         logging_config = config.setdefault('logging', {})
         logging_config.setdefault('data_directory', 'data')
-        logging_config.setdefault('session_prefix', 'BatFeeder')
         logging_config.setdefault('log_level', 'INFO')
-        
+
         return config
     
     def _load_mock_config(self) -> Dict[str, Any]:
@@ -210,11 +209,7 @@ class Settings:
     def get_logging_config(self) -> Dict[str, Any]:
         """Get logging configuration"""
         return self.config.get("logging", {})
-    
-    def get_session_config(self) -> Dict[str, Any]:
-        """Get default session configuration"""
-        return self.config.get("session", {})
-    
+
     def get_task_logic_config(self) -> Dict[str, Any]:
         """Get task logic configuration"""
         return self.config.get("task_logic", {})
