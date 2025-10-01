@@ -289,15 +289,13 @@ class BatFeederSystem:
         """Handle position update from tracking system"""
         try:
             # Position logging disabled - not needed for analysis
-            
-            # Update feeder manager
+
+            # Update feeder manager (uses ALL positions at full rate for control logic)
             self.feeder_controller.update_position(position)
-            
-            # Update GUI if available
-            if self.gui:
-                bat_states = self.feeder_controller.get_bat_states()
-                self.gui.update_flight_display(bat_states)
-                
+
+            # Note: GUI flight display is updated separately at 10 Hz (see gui update loop)
+            # This decouples high-frequency position updates (100 Hz) from display updates (10 Hz)
+
         except Exception as e:
             self.event_logger.error(f"Error processing position update: {e}")
     

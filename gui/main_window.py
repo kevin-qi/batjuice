@@ -401,7 +401,14 @@ class MainWindow:
         try:
             # Update status bar
             self._update_status_bar()
-            
+
+            # Update flight display with current bat states
+            # Note: This runs at GUI update rate (typically 20 Hz)
+            # FlightDataManager will further downsample to 10 Hz for display
+            if self.system_started and hasattr(self, 'system'):
+                bat_states = self.system.feeder_controller.get_bat_states()
+                self.update_flight_display(bat_states)
+
         except Exception as e:
             self.event_logger.error(f"GUI component update error: {e}")
     
