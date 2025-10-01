@@ -112,6 +112,7 @@ class ComprehensiveConfigDisplay:
             row = self._add_item(row, "Timeout", f"{ciholas.get('timeout', 'Not set')} s")
             row = self._add_item(row, "Frame Rate", f"{ciholas.get('frame_rate', 'Not set')} Hz")
             row = self._add_item(row, "Serial Numbers", str(ciholas.get("serial_numbers", "Not set")))
+            row = self._add_item(row, "Sync Serial Number", str(ciholas.get("sync_serial_number", "Not set")))
             row = self._add_item(row, "Coordinate Units", ciholas.get("coordinate_units", "Not set"))
             row = self._add_item(row, "Coordinate Scale", str(ciholas.get("coordinate_scale", "Not set")))
         row += 1
