@@ -138,22 +138,30 @@ class CiholasTracker(BaseTracker):
         """Flush any initial data in the UDP buffer"""
         if not self.socket:
             return
-            
+
         try:
             # Set a short timeout for flushing
             original_timeout = self.socket.gettimeout()
             self.socket.settimeout(0.1)
-            
-            # Read and discard packets until timeout
-            while True:
+
+            # Read and discard packets - limit to 100 packets or until timeout
+            # This prevents hanging if data is continuously streaming
+            flush_count = 0
+            max_flush = 100
+
+            while flush_count < max_flush:
                 try:
                     self.socket.recv(65536)
+                    flush_count += 1
                 except socket.timeout:
                     break
-            
+
+            if flush_count > 0:
+                print(f"Flushed {flush_count} packets from buffer")
+
             # Restore original timeout
             self.socket.settimeout(original_timeout)
-            
+
         except Exception as e:
             print(f"Error flushing buffer: {e}")
     
