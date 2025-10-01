@@ -34,11 +34,17 @@ class SessionControls:
         self.session_date = tk.StringVar()
         self.data_path = tk.StringVar()
         
-        # Initialize values
-        session_config = settings.config.get('session', {})
-        self.session_name.set(session_config.get('default_name', 'BatFeeder_Session'))
+        # Initialize values - use experiment name as default session name
+        experiment_config = settings.config.get('experiment', {})
+        experiment_name = experiment_config.get('name', 'BatFeeder_Session')
+        self.session_name.set(experiment_name)
         self.session_date.set(datetime.now().strftime('%y%m%d'))
-        self.data_path.set(session_config.get('default_data_path', './data'))
+
+        # Convert data directory to absolute path
+        import os
+        data_dir = settings.get_data_directory()
+        abs_data_dir = os.path.abspath(data_dir)
+        self.data_path.set(abs_data_dir)
         
         # Setup controls
         self._setup_controls()
@@ -46,7 +52,7 @@ class SessionControls:
     def _setup_controls(self):
         """Setup the session control layout"""
         # Main frame
-        control_frame = ttk.LabelFrame(self.parent, text="Session Control", padding=10)
+        control_frame = ttk.LabelFrame(self.parent, text="Session", padding=10)
         control_frame.pack(fill=tk.X, padx=5, pady=5)
         
         # Top row - Session info
@@ -96,13 +102,9 @@ class SessionControls:
                                   command=self._stop_session, state="disabled")
         self.stop_btn.pack(side=tk.LEFT, padx=(0, 20))
         
-        # Status indicator
-        self.status_label = ttk.Label(button_frame, text="Ready to start", foreground="blue")
+        # Status indicator (dark theme) - green when ready
+        self.status_label = ttk.Label(button_frame, text="Ready to start", foreground="#3BA55D")
         self.status_label.pack(side=tk.LEFT, padx=(0, 20))
-        
-        # Export button
-        export_btn = ttk.Button(button_frame, text="Export Data", command=self._export_data)
-        export_btn.pack(side=tk.RIGHT)
     
     def _browse_data_path(self):
         """Browse for data directory"""
@@ -137,10 +139,10 @@ class SessionControls:
             # Update session state
             self.session_running = True
             
-            # Update UI
+            # Update UI - yellow when running
             self.start_btn.config(state="disabled")
             self.stop_btn.config(state="normal")
-            self.status_label.config(text="Session Running", foreground="green")
+            self.status_label.config(text="Session Running", foreground="#FAA61A")
             
             # Update settings with current session info
             session_info = {
@@ -162,61 +164,18 @@ class SessionControls:
         try:
             # Update session state
             self.session_running = False
-            
+
             # Update UI
             self.start_btn.config(state="normal")
             self.stop_btn.config(state="disabled")
             self.status_label.config(text="Session Stopped", foreground="red")
-            
+
             # Call stop callback
             if self.on_stop:
                 self.on_stop()
-                
+
         except Exception as e:
             messagebox.showerror("Error", f"Failed to stop session: {e}")
-    
-    def _export_data(self):
-        """Export session data to consolidated format"""
-        try:
-            if not self.session_running:
-                messagebox.showwarning("Warning", "No active session to export")
-                return
-                
-            # Generate filename
-            name = self.session_name.get().replace(' ', '_')
-            date = self.session_date.get()
-            filename = f"{name}_{date}.txt"
-            
-            # Ask for save location
-            filepath = filedialog.asksaveasfilename(
-                title="Export Session Data",
-                defaultextension=".txt",
-                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-                initialfilename=filename
-            )
-            
-            if filepath:
-                self._create_consolidated_export(filepath)
-                messagebox.showinfo("Success", f"Data exported to: {filepath}")
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to export data: {e}")
-    
-    def _create_consolidated_export(self, filepath: str):
-        """Create consolidated data export for pandas"""
-        # This will be implemented to combine all log files into a single
-        # pandas-friendly format
-        with open(filepath, 'w') as f:
-            f.write("# Bat Feeder Session Data Export\n")
-            f.write(f"# Session: {self.session_name.get()}\n")
-            f.write(f"# Date: {self.session_date.get()}\n")
-            f.write(f"# Export Time: {datetime.now().isoformat()}\n")
-            f.write("\n")
-            f.write("timestamp,event_type,bat_id,feeder_id,x_pos,y_pos,z_pos,reward_delivered,manual,notes\n")
-            
-            # TODO: Implement actual data consolidation from log files
-            # This would read from the CSV files and combine them
-            f.write("# Data consolidation not yet implemented\n")
     
     def get_session_info(self) -> dict:
         """Get current session information"""

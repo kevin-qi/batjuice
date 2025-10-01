@@ -26,7 +26,8 @@ class BatPanel:
         
         # Load configuration
         gui_config = settings.get_gui_config() if settings else {}
-        self.update_interval = gui_config.get('bat_panel_update_interval', 2.0)
+        refresh_rate_hz = gui_config.get('refresh_rate_hz', 10)
+        self.update_interval = 1.0 / refresh_rate_hz  # Convert Hz to seconds
         self.position_timeout = gui_config.get('position_timeout_gui', 5.0)
         
         # Update control
@@ -39,50 +40,36 @@ class BatPanel:
     def _setup_panel(self):
         """Setup the bat panel layout"""
         # Create treeview for bat data with per-feeder stats
-        columns = ('Bat ID', 'Tag ID', 'Status', 'Position', 'Total Flights', 'Total Rewards', 'Flights/Feeder', 'Rewards/Feeder', 'Last Update')
+        columns = ('Bat ID', 'Tag ID', 'Status', 'Position', 'Total Flights', 'Total Rewards', 'Flights/Feeder', 'Rewards/Feeder')
         self.bat_tree = ttk.Treeview(self.parent, columns=columns, show='headings', height=8)
-        
+
         # Configure columns
         column_widths = {
             'Bat ID': 60,
-            'Tag ID': 50,
+            'Tag ID': 100,  # Doubled from 50 to accommodate 8-10 digit numbers
             'Status': 80,
-            'Position': 120,
-            'Total Flights': 70,
-            'Total Rewards': 70,
-            'Flights/Feeder': 80,
-            'Rewards/Feeder': 80,
-            'Last Update': 80
+            'Position': 90,
+            'Total Flights': 90,
+            'Total Rewards': 100,
+            'Flights/Feeder': 100,
+            'Rewards/Feeder': 110
         }
-        
+
         for col in columns:
             self.bat_tree.heading(col, text=col)
             self.bat_tree.column(col, width=column_widths.get(col, 100))
-        
+
+        # Configure zebra striping for alternating rows (dark theme)
+        self.bat_tree.tag_configure('oddrow', background='#40444B')
+        self.bat_tree.tag_configure('evenrow', background='#36393F')
+
         # Scrollbar for treeview
         scrollbar = ttk.Scrollbar(self.parent, orient=tk.VERTICAL, command=self.bat_tree.yview)
         self.bat_tree.configure(yscrollcommand=scrollbar.set)
-        
+
         # Pack widgets
         self.bat_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Summary frame at bottom
-        summary_frame = ttk.Frame(self.parent)
-        summary_frame.pack(fill=tk.X, pady=(10, 0))
-        
-        # Summary labels
-        self.total_bats_label = ttk.Label(summary_frame, text="Total Bats: 0")
-        self.total_bats_label.pack(side=tk.LEFT)
-        
-        self.active_bats_label = ttk.Label(summary_frame, text="Active Bats: 0")
-        self.active_bats_label.pack(side=tk.LEFT, padx=(20, 0))
-        
-        self.total_flights_label = ttk.Label(summary_frame, text="Total Flights: 0")
-        self.total_flights_label.pack(side=tk.LEFT, padx=(20, 0))
-        
-        self.total_rewards_label = ttk.Label(summary_frame, text="Total Rewards: 0")
-        self.total_rewards_label.pack(side=tk.LEFT, padx=(20, 0))
     
     def start_updates(self):
         """Start update thread"""
@@ -127,20 +114,14 @@ class BatPanel:
             total_flights = 0
             total_rewards = 0
             active_bats = 0
-            
+
+            row_index = 0
             for bat_id, bat_state in bat_states.items():
                 # Format position
                 if bat_state.last_position:
                     position_str = f"({bat_state.last_position.x:.1f}, {bat_state.last_position.y:.1f}, {bat_state.last_position.z:.1f})"
-                    # Format last update time
-                    time_diff = time.time() - bat_state.last_position.timestamp
-                    if time_diff < 60:
-                        last_update = f"{time_diff:.1f}s ago"
-                    else:
-                        last_update = f"{time_diff/60:.1f}m ago"
                 else:
                     position_str = "Unknown"
-                    last_update = "Never"
                 
                 # Determine if bat is active (recent position update)
                 is_active = (bat_state.last_position and 
@@ -159,8 +140,16 @@ class BatPanel:
                 
                 # Get per-feeder statistics
                 flights_per_feeder, rewards_per_feeder = bat_state.get_feeder_stats_string()
-                
-                # Add to tree
+
+                # Determine row tags for zebra striping
+                row_tag = 'evenrow' if row_index % 2 == 0 else 'oddrow'
+                tags = [row_tag]
+
+                # Add INACTIVE tag if needed
+                if activation_status == 'INACTIVE':
+                    tags.append('inactive')
+
+                # Add to tree with zebra striping
                 item = self.bat_tree.insert('', 'end', values=(
                     bat_state.bat_id,
                     bat_state.tag_id,
@@ -169,29 +158,21 @@ class BatPanel:
                     bat_state.flight_count,
                     bat_state.reward_count,
                     flights_per_feeder,
-                    rewards_per_feeder,
-                    last_update
-                ))
-                
-                # Color-code INACTIVE bats
+                    rewards_per_feeder
+                ), tags=tuple(tags))
+
+                # Configure INACTIVE style (muted gray on dark background)
                 if activation_status == 'INACTIVE':
-                    self.bat_tree.set(item, 'Status', status_str)
-                    # Make INACTIVE bats slightly grayed out
                     try:
-                        self.bat_tree.item(item, tags=('inactive',))
-                        self.bat_tree.tag_configure('inactive', foreground='gray')
+                        self.bat_tree.tag_configure('inactive', foreground='#72767D')
                     except:
                         pass  # Ignore styling errors
-                
+
                 total_flights += bat_state.flight_count
                 total_rewards += bat_state.reward_count
-            
-            # Update summary
-            self.total_bats_label.config(text=f"Total Bats: {len(bat_states)}")
-            self.active_bats_label.config(text=f"Active Bats: {active_bats}")
-            self.total_flights_label.config(text=f"Total Flights: {total_flights}")
-            self.total_rewards_label.config(text=f"Total Rewards: {total_rewards}")
-            
+                row_index += 1
+
+
         except Exception as e:
             import traceback
             print(f"Error updating bat display in {__file__}:")

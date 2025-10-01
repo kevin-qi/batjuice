@@ -10,21 +10,23 @@ from typing import Optional
 
 class FeederPanel:
     """Panel for controlling and monitoring feeders"""
-    
-    def __init__(self, parent, feeder_controller, settings, event_logger):
+
+    def __init__(self, parent, feeder_controller, settings, event_logger, root=None):
         """
         Initialize feeder panel
-        
+
         Args:
             parent: Parent tkinter widget
             feeder_manager: FeederManager instance
             settings: Settings instance
             event_logger: EventLogger instance
+            root: Root window for global event binding (optional)
         """
         self.parent = parent
         self.feeder_controller = feeder_controller
         self.settings = settings
         self.event_logger = event_logger
+        self.root = root if root else parent.winfo_toplevel()
         
         # Update control
         self.running = False
@@ -39,61 +41,79 @@ class FeederPanel:
     
     def _setup_panel(self):
         """Setup the feeder panel layout"""
-        # Main scrollable frame
-        canvas = tk.Canvas(self.parent)
-        scrollbar = ttk.Scrollbar(self.parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
         # Get feeder configurations
         feeder_configs = self.settings.get_feeder_configs()
-        
-        # Create compact feeder table instead of individual widgets
-        self._create_feeder_table(scrollable_frame, feeder_configs)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+
+        # Create compact feeder table directly in parent (no scrolling wrapper needed)
+        self._create_feeder_table(self.parent, feeder_configs)
     
     def _create_feeder_table(self, parent, feeder_configs):
         """Create compact tabular display for feeders"""
-        # Main feeder table frame
-        table_frame = ttk.LabelFrame(parent, text="Feeders", padding=10)
+        # Main feeder table frame (no text since outer card already says "Feeders")
+        table_frame = ttk.LabelFrame(parent, text="", padding=10)
         table_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
+
+        # Container for manual buttons and table
+        content_frame = ttk.Frame(table_frame)
+        content_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        # Manual control buttons frame (left side)
+        button_frame = ttk.Frame(content_frame)
+        button_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+
+        # Header label for button column
+        ttk.Label(button_frame, text="Manual", font=('TkDefaultFont', 8, 'bold')).pack(pady=(0, 2))
+
+        # Store button references
+        self.manual_buttons = {}
+
         # Create treeview for compact display
-        columns = ('ID', 'Status', 'Beam Breaks', 'Rewards', 'Duration', 'Speed', 'Probability', 'Distance', 'Actions')
-        self.feeder_tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=len(feeder_configs) + 1)
-        
+        columns = ('ID', 'Beam Breaks', 'Rewards', 'Duration', 'Speed', 'Probability', 'Distance')
+        self.feeder_tree = ttk.Treeview(content_frame, columns=columns, show='headings', height=len(feeder_configs) + 1)
+
         # Configure column headers and widths
-        col_widths = {'ID': 30, 'Status': 60, 'Beam Breaks': 80, 'Rewards': 60, 
-                     'Duration': 60, 'Speed': 50, 'Probability': 70, 'Distance': 60, 'Actions': 100}
-        
+        col_widths = {'ID': 30, 'Beam Breaks': 80, 'Rewards': 60,
+                     'Duration': 60, 'Speed': 50, 'Probability': 70, 'Distance': 60}
+
         for col in columns:
             self.feeder_tree.heading(col, text=col)
             self.feeder_tree.column(col, width=col_widths.get(col, 80), minwidth=50)
-        
-        # Add feeder data
+
+        # Configure zebra striping for alternating rows (dark theme)
+        self.feeder_tree.tag_configure('oddrow', background='#40444B')
+        self.feeder_tree.tag_configure('evenrow', background='#36393F')
+
+        # Add feeder data and corresponding manual buttons
+        row_index = 0
         for feeder_config in feeder_configs:
             feeder_id = feeder_config.feeder_id
+
+            # Determine row tag for zebra striping
+            row_tag = 'evenrow' if row_index % 2 == 0 else 'oddrow'
+
+            # Add feeder row to tree with zebra striping
             self.feeder_tree.insert('', 'end', iid=f'feeder_{feeder_id}', values=(
                 feeder_id,
-                'Ready',
                 0,  # beam breaks
                 0,  # rewards
                 feeder_config.duration_ms,
                 feeder_config.speed,
                 f"{feeder_config.probability:.1f}",
-                f"{feeder_config.activation_radius:.1f}",
-                ''  # actions placeholder
-            ))
-            
+                f"{feeder_config.activation_radius:.1f}"
+            ), tags=(row_tag,))
+
+            # Create corresponding manual button
+            btn = ttk.Button(
+                button_frame,
+                text=f"F{feeder_id}",
+                width=5,
+                command=lambda fid=feeder_id: self._manual_reward(fid)
+            )
+            btn.pack(pady=2)
+            self.manual_buttons[feeder_id] = btn
+
+            row_index += 1
+
             # Store feeder vars for updates
             self.feeder_vars[feeder_id] = {
                 'duration_ms': feeder_config.duration_ms,
@@ -101,9 +121,27 @@ class FeederPanel:
                 'probability': feeder_config.probability,
                 'activation_radius': feeder_config.activation_radius
             }
-        
-        self.feeder_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        
+
+        self.feeder_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Allow deselecting by clicking on background areas only (bind to root window)
+        def deselect_on_click(event):
+            # Don't deselect if clicking on the treeview itself
+            if event.widget == self.feeder_tree:
+                return
+
+            # Don't deselect if clicking on interactive controls (buttons, entries, spinboxes, comboboxes)
+            widget_class = event.widget.winfo_class()
+            if widget_class in ('TButton', 'Button', 'TEntry', 'Entry', 'TSpinbox', 'Spinbox',
+                               'TCombobox', 'Combobox', 'TScrollbar', 'Scrollbar'):
+                return
+
+            # Only deselect when clicking on background frames/labels
+            self.feeder_tree.selection_remove(self.feeder_tree.selection())
+
+        # Bind to root window to capture all background clicks
+        self.root.bind('<Button-1>', deselect_on_click, add='+')
+
         # Compact controls frame
         controls_frame = ttk.Frame(table_frame)
         controls_frame.pack(fill=tk.X)
@@ -117,34 +155,22 @@ class FeederPanel:
         self.duration_var = tk.IntVar(value=100)
         duration_spin = ttk.Spinbox(config_frame, from_=50, to=2000, width=8, textvariable=self.duration_var)
         duration_spin.grid(row=0, column=1, padx=(0, 10))
-        
-        # Speed control  
+
+        # Speed control
         ttk.Label(config_frame, text="Speed:").grid(row=0, column=2, sticky='w', padx=(0, 5))
         self.speed_var = tk.IntVar(value=255)
         speed_spin = ttk.Spinbox(config_frame, from_=0, to=255, width=8, textvariable=self.speed_var)
         speed_spin.grid(row=0, column=3, padx=(0, 10))
-        
+
+        # Probability control
+        ttk.Label(config_frame, text="Probability:").grid(row=0, column=4, sticky='w', padx=(0, 5))
+        self.probability_var = tk.DoubleVar(value=1.0)
+        prob_spin = ttk.Spinbox(config_frame, from_=0.0, to=1.0, increment=0.1, width=8, textvariable=self.probability_var)
+        prob_spin.grid(row=0, column=5, padx=(0, 10))
+
         # Apply button
         apply_btn = ttk.Button(config_frame, text="Apply to Selected", command=self._apply_quick_config)
-        apply_btn.grid(row=0, column=4, padx=(10, 0))
-        
-        # Manual controls
-        manual_frame = ttk.LabelFrame(controls_frame, text="Manual Control", padding=5)
-        manual_frame.pack(side=tk.RIGHT)
-        
-        # Manual reward buttons (top row)
-        reward_frame = ttk.Frame(manual_frame)
-        reward_frame.pack()
-        ttk.Label(reward_frame, text="Reward:").pack(side=tk.LEFT, padx=(0, 5))
-        for feeder_config in feeder_configs:
-            feeder_id = feeder_config.feeder_id
-            reward_btn = ttk.Button(
-                reward_frame,
-                text=f"F{feeder_id}",
-                width=4,
-                command=lambda fid=feeder_id: self._manual_reward(fid)
-            )
-            reward_btn.pack(side=tk.LEFT, padx=2)
+        apply_btn.grid(row=0, column=6, padx=(10, 0))
         
     
     def _apply_quick_config(self):
@@ -153,24 +179,26 @@ class FeederPanel:
         if not selection:
             # If nothing selected, apply to all
             selection = [f'feeder_{i}' for i in self.feeder_vars.keys()]
-        
+
         duration = self.duration_var.get()
         speed = self.speed_var.get()
-        
+        probability = self.probability_var.get()
+
         for item_id in selection:
             if item_id.startswith('feeder_'):
                 feeder_id = int(item_id.split('_')[1])
                 if feeder_id in self.feeder_vars:
                     # Update feeder manager
-                    self.feeder_controller.update_feeder_config(feeder_id, duration_ms=duration, speed=speed)
-                    
-                    # Update tree display
+                    self.feeder_controller.update_feeder_config(feeder_id, duration_ms=duration, speed=speed, probability=probability)
+
+                    # Update tree display (columns: ID, Beam Breaks, Rewards, Duration, Speed, Probability, Distance)
                     current_values = list(self.feeder_tree.item(item_id)['values'])
-                    current_values[4] = duration  # Duration column
-                    current_values[5] = speed     # Speed column
+                    current_values[3] = duration  # Duration column (index 3)
+                    current_values[4] = speed     # Speed column (index 4)
+                    current_values[5] = f"{probability:.1f}"  # Probability column (index 5)
                     self.feeder_tree.item(item_id, values=current_values)
-                    
-                    print(f"Updated feeder {feeder_id}: duration={duration}ms, speed={speed}")
+
+                    print(f"Updated feeder {feeder_id}: duration={duration}ms, speed={speed}, probability={probability}")
     
     def _create_feeder_widget(self, parent, feeder_config, row):
         """Create widget for a single feeder"""
@@ -343,10 +371,7 @@ class FeederPanel:
         
         # Editable new value
         dist_var = tk.DoubleVar(value=feeder_config.activation_radius)
-        # Get max activation distance from GUI config
-        gui_config = self.settings.get_gui_config()
-        max_distance = gui_config.get('max_activation_radius', 5.0)
-        dist_spinbox = ttk.Spinbox(dist_frame, from_=0.1, to=max_distance, increment=0.05, width=10, textvariable=dist_var)
+        dist_spinbox = ttk.Spinbox(dist_frame, from_=0.1, to=999, increment=0.05, width=10, textvariable=dist_var)
         dist_spinbox.pack(side=tk.LEFT, padx=(0, 5))
         dist_spinbox.bind('<Key>', lambda e: self._highlight_changes(feeder_id))
         dist_spinbox.bind('<Button-1>', lambda e: self._highlight_changes(feeder_id))
@@ -606,15 +631,15 @@ class FeederPanel:
             for feeder_id, config in feeder_configs.items():
                 item_id = f'feeder_{feeder_id}'
                 if self.feeder_tree.exists(item_id):
-                    # Get current values and update
+                    # Get current values and update (columns: ID, Beam Breaks, Rewards, Duration, Speed, Probability, Distance)
                     current_values = list(self.feeder_tree.item(item_id)['values'])
-                    current_values[2] = config.beam_break_count  # Beam breaks
-                    current_values[3] = config.reward_delivery_count  # Rewards
-                    current_values[4] = config.duration_ms  # Duration
-                    current_values[5] = config.speed  # Speed
-                    current_values[6] = f"{config.probability:.1f}"  # Probability
-                    current_values[7] = f"{config.activation_radius:.1f}"  # Distance
-                    
+                    current_values[1] = config.beam_break_count  # Beam breaks (index 1)
+                    current_values[2] = config.reward_delivery_count  # Rewards (index 2)
+                    current_values[3] = config.duration_ms  # Duration (index 3)
+                    current_values[4] = config.speed  # Speed (index 4)
+                    current_values[5] = f"{config.probability:.1f}"  # Probability (index 5)
+                    current_values[6] = f"{config.activation_radius:.1f}"  # Distance (index 6)
+
                     self.feeder_tree.item(item_id, values=current_values)
                     
         except Exception as e:
