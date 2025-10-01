@@ -36,7 +36,7 @@ class CiholasTracker(BaseTracker):
             print("Warning: No serial numbers provided for Ciholas tracker")
         
         # Coordinate conversion settings
-        self.coordinate_scale = config.get('coordinate_scale', 10.0)  # Default: mm to cm
+        self.coordinate_scale = config.get('coordinate_scale', 1000.0)  # Default: mm to meters
         self.coordinate_units = config.get('coordinate_units', 'mm')
         
         # Tracking state
@@ -264,33 +264,33 @@ class CiholasTracker(BaseTracker):
             if not self.bat_states[bat_index]['enabled']:
                 return
             
-            # Convert coordinates using configured scale
-            x_cm = float(x) / self.coordinate_scale
-            y_cm = float(y) / self.coordinate_scale
-            z_cm = float(z) / self.coordinate_scale
-            
+            # Convert coordinates using configured scale (mm to meters)
+            x_m = float(x) / self.coordinate_scale
+            y_m = float(y) / self.coordinate_scale
+            z_m = float(z) / self.coordinate_scale
+
             # Create bat and tag IDs
             bat_id = f"bat_{bat_index:02d}"
             tag_id = f"tag_{serial_number}"
-            
+
             # Create position object
             position = Position(
                 bat_id=bat_id,
                 tag_id=tag_id,
-                x=x_cm,
-                y=y_cm,
-                z=z_cm,
+                x=x_m,
+                y=y_m,
+                z=z_m,
                 timestamp=time.time()  # Use current time since network_time might need conversion
             )
-            
+
             # Update bat state
             self.bat_states[bat_index]['last_position'] = position
             self.bat_states[bat_index]['last_update'] = time.time()
-            
+
             # Add to position queue and trigger callback
             self._add_position(position)
 
-            print(f"Position added: {bat_id} at ({x_cm:.2f}, {y_cm:.2f}, {z_cm:.2f}) cm")
+            print(f"Position added: {bat_id} at ({x_m:.3f}, {y_m:.3f}, {z_m:.3f}) m")
 
         except Exception as e:
             print(f"Error processing position data: {e}")
