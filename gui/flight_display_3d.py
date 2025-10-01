@@ -17,31 +17,24 @@ from typing import Dict, Any, Optional
 class FlightDisplay3D:
     """Real-time 3D flight path display with camera controls"""
     
-    def __init__(self, parent, gui_config: Dict[str, Any], room_config: Dict[str, Any], feeder_configs: list):
+    def __init__(self, parent, gui_config: Dict[str, Any], room_config: Dict[str, Any], feeder_configs: list, data_manager):
         """
-        Initialize 3D flight display
+        Initialize 3D flight display (manual refresh mode)
         
         Args:
             parent: Parent tkinter widget
             gui_config: GUI configuration dictionary
             room_config: Room configuration with bounds
             feeder_configs: List of feeder configurations
+            data_manager: FlightDataManager instance for shared data
         """
         self.parent = parent
         self.gui_config = gui_config
         self.room_config = room_config
         self.feeder_configs = feeder_configs
-        self.max_points = 10000  # Maximum flight trail points
-
-        # Data storage
-        self.flight_data = defaultdict(lambda: {'x': deque(maxlen=self.max_points),
-                                              'y': deque(maxlen=self.max_points),
-                                              'z': deque(maxlen=self.max_points),
-                                              'timestamps': deque(maxlen=self.max_points)})
+        self.data_manager = data_manager  # Shared data manager
         
         # Display control
-        self.running = False
-        self.update_thread: Optional[threading.Thread] = None
         self.selected_bat = tk.StringVar(value="All")
         self.show_trigger_radius = tk.BooleanVar(value=True)
         self.show_reactivation_radius = tk.BooleanVar(value=False)
@@ -71,20 +64,14 @@ class FlightDisplay3D:
         self.frame_times = deque(maxlen=30)  # Track last 30 frame times
         self.last_frame_time = time.time()
         self.fps_text = None
+
+        # Incremental plotting for O(1) performance
+        self.bat_trail_collections = defaultdict(list)  # bat_id -> List[Line3DCollection]
+        self.last_plotted_index = {}  # bat_id -> last plotted point index
         
-        # Intelligent caching for performance
-        self.cached_collections = {}  # bat_id -> Line3DCollection
-        self.cache_dirty = {}  # bat_id -> bool (needs update)
-        self.last_data_lengths = {}  # bat_id -> int (for change detection)
-        
-        # Display subsampling (show every Nth point)
-        self.display_subsample_rate = 10  # Show every 10th point (100Hz -> 10Hz display)
-        
-        # Point reduction tracking
-        self.last_cleanup_time = time.time()
-        self.cleanup_interval = 5.0  # Clean up every 5 seconds
-        self.stationary_threshold = gui_config.get('stationary_threshold', 0.5)  # meters
-        self.stationary_time_window = 1.0  # seconds
+        # Background caching for true incremental rendering
+        self.background = None  # Cached clean background
+        self.needs_full_redraw = True  # Flag for when to redraw everything
         
         # Setup display
         self._setup_display()
@@ -106,6 +93,10 @@ class FlightDisplay3D:
         # Reset view button
         reset_btn = ttk.Button(control_frame, text="Reset View", command=self._reset_camera)
         reset_btn.pack(side=tk.LEFT, padx=(5, 10))
+
+        # NEW: Refresh button for manual 3D update
+        refresh_btn = ttk.Button(control_frame, text="Refresh 3D", command=self._on_refresh_clicked)
+        refresh_btn.pack(side=tk.LEFT, padx=(5, 10))
 
         # Clear button
         clear_btn = ttk.Button(control_frame, text="Clear Paths", command=self._clear_paths_with_confirmation)
@@ -291,148 +282,120 @@ class FlightDisplay3D:
         
         print("Flight display: Feeder positions updated")
     
-    def update_positions(self, bat_states: Dict):
-        """Update flight paths with new position data (subsampled for display)"""
-        for bat_id, bat_state in bat_states.items():
-            if bat_state.last_position:
-                pos = bat_state.last_position
-                
-                # Skip NaN positions
-                if any(math.isnan(val) for val in [pos.x, pos.y, pos.z]):
-                    continue
-                
-                # Subsample for display (only add every Nth point)
-                if not hasattr(self, '_point_counters'):
-                    self._point_counters = {}
-                if bat_id not in self._point_counters:
-                    self._point_counters[bat_id] = 0
-                
-                self._point_counters[bat_id] += 1
-                
-                # Only add to display every Nth point
-                if self._point_counters[bat_id] % self.display_subsample_rate == 0:
-                    # Add to flight data
-                    self.flight_data[bat_id]['x'].append(pos.x)
-                    self.flight_data[bat_id]['y'].append(pos.y)
-                    self.flight_data[bat_id]['z'].append(pos.z)
-                    self.flight_data[bat_id]['timestamps'].append(pos.timestamp)
-                    
-                    # Mark cache as dirty
-                    self.cache_dirty[bat_id] = True
-                
-                # Periodic cleanup of stationary points
-                current_time = time.time()
-                if current_time - self.last_cleanup_time > self.cleanup_interval:
-                    self._cleanup_stationary_points()
-                    self.last_cleanup_time = current_time
-        
-        # Update bat selection combobox
-        current_bats = list(self.flight_data.keys())
-        current_bats.insert(0, "All")
-        self.bat_combobox['values'] = current_bats
-    
-    def start_updates(self):
-        """Start update thread"""
-        if self.running:
-            return
-            
-        self.running = True
-        self.update_thread = threading.Thread(target=self._update_loop, daemon=True)
-        self.update_thread.start()
-    
-    def stop_updates(self):
-        """Stop update thread"""
-        self.running = False
-        if self.update_thread and self.update_thread.is_alive():
-            self.update_thread.join(timeout=1.0)
-    
-    def _update_loop(self):
-        """Update loop for flight display"""
-        while self.running:
+    def update_feeder_positions(self, updated_feeder_configs):
+        """Update feeder positions in the display"""
+        self.feeder_configs = updated_feeder_configs
+        self.static_elements_drawn = False
+
+    def _on_refresh_clicked(self):
+        """Refresh 3D plot with latest data (on separate thread - non-blocking)"""
+        def refresh_worker():
             try:
-                # Schedule update on main thread
-                if self.parent.winfo_exists():
-                    self.parent.after_idle(self._update_plot)
-                time.sleep(0.1)  # Update at 10 Hz
+                # Get snapshot from data manager (thread-safe)
+                snapshot = self.data_manager.get_snapshot()
+
+                # Schedule plot update on main thread
+                self.parent.after_idle(lambda: self._refresh_plot(snapshot))
             except Exception as e:
                 import traceback
-                print(f"Flight display update error in {__file__}:")
-                print(f"Error: {e}")
+                print(f"3D refresh error: {e}")
                 traceback.print_exc()
-                refresh_rate_hz = self.gui_config.get('refresh_rate_hz', 10)
-                update_interval = 1.0 / refresh_rate_hz  # Convert Hz to seconds
-                time.sleep(update_interval)
-    
-    def _update_plot(self):
-        """Update the 3D plot (called on main thread)"""
+
+        # Run on separate thread (never blocks main thread)
+        refresh_thread = threading.Thread(target=refresh_worker, daemon=True)
+        refresh_thread.start()
+
+    def _refresh_plot(self, snapshot):
+        """Update 3D plot with snapshot data (called on main thread)"""
         try:
-            # Performance monitoring
-            current_time = time.time()
-            if self.last_frame_time:
-                frame_time = current_time - self.last_frame_time
-                self.frame_times.append(frame_time)
-            self.last_frame_time = current_time
-            
+            # Clear existing trajectories
+            for bat_id, collections in self.bat_trail_collections.items():
+                for collection in collections:
+                    try:
+                        collection.remove()
+                    except:
+                        pass
+            self.bat_trail_collections.clear()
+            self.last_plotted_index.clear()
+
+            # Update bat combobox
+            current_bats = list(snapshot.keys())
+            current_bats.insert(0, "All")
+            self.bat_combobox['values'] = current_bats
+
+            # Trigger full replot with snapshot
+            self.needs_full_redraw = True
+            self._update_plot_with_snapshot(snapshot)
+
+        except Exception as e:
+            import traceback
+            print(f"3D plot refresh error: {e}")
+            traceback.print_exc()
+
+    def _update_plot_with_snapshot(self, snapshot):
+        """Update plot using snapshot data"""
+        try:
             # Only draw static elements once or when needed
             if not self.static_elements_drawn:
                 self._draw_static_elements()
                 self.static_elements_drawn = True
-            
-            # Clear only the dynamic bat trail elements
+
+            # Clear dynamic elements
             self._clear_dynamic_elements()
-            
+
             selected_bat = self.selected_bat.get()
-            trail_length = self.max_points  # Use hardcoded max points
-            
+            trail_length = 100000  # No limit for snapshot
+
             # Plot data
             if selected_bat == "All":
                 # Plot all bats with their distinct colors
-                for i, (bat_id, data) in enumerate(self.flight_data.items()):
+                for i, (bat_id, data) in enumerate(snapshot.items()):
                     if len(data['x']) > 1:
                         color = self.bat_colors[i % len(self.bat_colors)]
-                        self._plot_bat_path_3d(data, bat_id, color, trail_length)
+                        new_collections = self._plot_bat_path_3d(data, bat_id, color, trail_length)
+                        for lc in new_collections:
+                            self.ax.add_collection3d(lc)
             else:
                 # Plot all bats: selected in bright highlight color, others in grey
-                highlight_color = '#FF00FF'  # Bright magenta for maximum visibility and contrast with grey
-                grey_color = '#606060'  # Medium grey for background bats
+                highlight_color = '#FF00FF'
+                grey_color = '#606060'
 
-                for bat_id, data in self.flight_data.items():
+                for bat_id, data in snapshot.items():
                     if len(data['x']) > 1:
                         if bat_id == selected_bat:
-                            # Highlight the selected bat
-                            self._plot_bat_path_3d(data, bat_id, highlight_color, trail_length)
+                            new_collections = self._plot_bat_path_3d(data, bat_id, highlight_color, trail_length)
                         else:
-                            # Show other bats in grey
-                            self._plot_bat_path_3d(data, bat_id, grey_color, trail_length)
-            
-            # Add legend ONCE (not every frame!)
-            if selected_bat == "All" and len(self.flight_data) > 1:
-                # Clear existing legend
+                            new_collections = self._plot_bat_path_3d(data, bat_id, grey_color, trail_length)
+                        for lc in new_collections:
+                            self.ax.add_collection3d(lc)
+
+            # Add legend
+            if selected_bat == "All" and len(snapshot) > 1:
                 if self.ax.get_legend():
                     self.ax.get_legend().remove()
-                
-                # Create new legend with bat colors
+
                 legend_elements = []
-                for i, bat_id in enumerate(self.flight_data.keys()):
+                for i, bat_id in enumerate(snapshot.keys()):
                     color = self.bat_colors[i % len(self.bat_colors)]
                     from matplotlib.lines import Line2D
                     legend_elements.append(Line2D([0], [0], color=color, lw=2, label=bat_id))
-                
+
                 if legend_elements:
                     self.ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
-            
+
             # Add FPS counter
             self._draw_fps_counter()
-            
-            # Use blit for better performance
-            self.canvas.draw_idle()
-            
+
+            # Full redraw
+            self.canvas.draw()
+            self.needs_full_redraw = False
+
         except Exception as e:
             import traceback
             print(f"Error updating 3D flight plot in {__file__}:")
             print(f"Error: {e}")
             traceback.print_exc()
-    
+
     def _draw_static_elements(self):
         """Draw static room elements that don't change"""
         # Clear ALL collections and texts when redrawing static elements
@@ -501,25 +464,32 @@ class FlightDisplay3D:
         self._draw_feeders()
     
     def _clear_dynamic_elements(self):
-        """Clear only dynamic elements, preserve static ones and cached collections"""
+        """Clear only dynamic elements (scatter points), preserve static ones and bat trail collections"""
         from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 
         artists_to_remove = []
 
-        # Remove ALL collections except static ones and current cached collections
+        # Remove ALL collections except static ones and bat trail collections
         for collection in self.ax.collections:
             # Keep feeder elements (squares and spheres tracked in lists)
             if (collection in self.feeder_square_collections or
                 collection in self.feeder_trigger_sphere_collections or
                 collection in self.feeder_reactivation_sphere_collections):
                 continue
-            # Keep current cached Line3DCollections for bat trails
-            if isinstance(collection, Line3DCollection) and collection in self.cached_collections.values():
+
+            # Keep all bat trail Line3DCollections (now stored in lists per bat)
+            is_bat_trail = False
+            for bat_collections in self.bat_trail_collections.values():
+                if collection in bat_collections:
+                    is_bat_trail = True
+                    break
+            if is_bat_trail:
                 continue
+
             # Remove scatter points and other temporary collections
             artists_to_remove.append(collection)
 
-        # Remove temporary elements (scatter points will be redrawn)
+        # Remove temporary elements (scatter points will be redrawn each frame)
         for artist in artists_to_remove:
             try:
                 artist.remove()
@@ -527,118 +497,159 @@ class FlightDisplay3D:
                 pass
     
     def _plot_bat_path_3d(self, data: Dict, bat_id: str, color: str, trail_length: int):
-        """Plot 3D path using intelligent caching for high performance"""
+        """Plot bat flight path in 3D with O(1) incremental plotting
+        
+        Returns:
+            list: New Line3DCollection objects created (for incremental rendering)
+        """
         import numpy as np
         import matplotlib.colors as mcolors
         from mpl_toolkits.mplot3d.art3d import Line3DCollection
-        
+
         x_data = list(data['x'])
         y_data = list(data['y'])
         z_data = list(data['z'])
-        
-        if len(x_data) < 2:
-            return
-        
-        # Limit trail length if specified
-        if len(x_data) > trail_length:
-            x_data = x_data[-trail_length:]
-            y_data = y_data[-trail_length:]
-            z_data = z_data[-trail_length:]
-        
+
+        if len(x_data) < 1:
+            return []
+
         current_length = len(x_data)
-        
-        # TRUE CACHING: Check if we can reuse cached collection
-        if (bat_id in self.cached_collections and
-            not self.cache_dirty.get(bat_id, True) and
-            self.last_data_lengths.get(bat_id, 0) == current_length):
-            # Collection exists and is current - just add current position marker
-            self.ax.scatter([x_data[-1]], [y_data[-1]], [z_data[-1]],
-                          c=color, s=120, alpha=1.0, edgecolors='#2B2D31',
-                          linewidth=2.5, marker='o')
-            return
-        
-        # Remove old cached collection if exists
-        if bat_id in self.cached_collections:
-            try:
-                self.cached_collections[bat_id].remove()
-            except:
-                pass
-            del self.cached_collections[bat_id]
-        
-        # Create new trail ONLY (no dots along path)
-        if len(x_data) > 1:
-            # Convert to numpy arrays for efficiency
-            x_array = np.array(x_data)
-            y_array = np.array(y_data)
-            z_array = np.array(z_data)
-            
-            # Check for NaN values and skip if any are present
-            if np.isnan(x_array).any() or np.isnan(y_array).any() or np.isnan(z_array).any():
-                return
-            
-            # Create line segments - optimized for large datasets
-            points = np.array([x_array, y_array, z_array]).T
-            segments = np.array([points[:-1], points[1:]]).transpose(1, 0, 2)
-            
-            n_segments = len(segments)
-            
-            # Skip if no segments to draw
-            if n_segments == 0:
-                return
-            
-            # Convert color to RGB tuple (handles hex colors and named colors)
-            if isinstance(color, str):
-                color_rgb = mcolors.to_rgb(color)
+        new_collections = []  # Track new collections created this call
+
+        # Convert color to RGB tuple (handles hex colors and named colors)
+        if isinstance(color, str):
+            color_rgb = mcolors.to_rgb(color)
+        else:
+            color_rgb = color
+
+        # Check if this is a grey/unhighlighted trajectory (for lower opacity)
+        is_grey = (color_rgb[0] == color_rgb[1] == color_rgb[2])  # Grey has equal RGB values
+
+        # Determine alpha and linewidth based on color
+        if is_grey:
+            base_alpha = 0.3
+            fade_alpha = 0.6
+            linewidth = 1.5  # Thinner for performance
+        else:
+            base_alpha = 0.75
+            fade_alpha = 1.0
+            linewidth = 2.0  # Thinner for performance
+
+        # INCREMENTAL PLOTTING: Only plot NEW segments since last call
+        last_idx = self.last_plotted_index.get(bat_id, 0)
+        is_full_replot = (last_idx == 0 and current_length > 1)
+
+        # Check if we need to replot everything (data was cleaned up or bat just appeared)
+        if last_idx > current_length:
+            # Data was cleaned up - clear and restart
+            for collection in self.bat_trail_collections[bat_id]:
+                try:
+                    collection.remove()
+                except:
+                    pass
+            self.bat_trail_collections[bat_id].clear()
+            last_idx = 0
+            self.last_plotted_index[bat_id] = 0
+            is_full_replot = True
+
+        # Calculate new segments to plot
+        if current_length > last_idx and current_length > 1:
+            # Determine which points are new
+            if last_idx == 0:
+                # First time plotting - plot all segments
+                new_start = 0
             else:
-                color_rgb = color
+                # Plot only new segments (start from previous point to create continuity)
+                new_start = max(0, last_idx - 1)
 
-            # Check if this is a grey/unhighlighted trajectory (for lower opacity)
-            is_grey = (color_rgb[0] == color_rgb[1] == color_rgb[2])  # Grey has equal RGB values
+            # Extract new points
+            new_x = x_data[new_start:]
+            new_y = y_data[new_start:]
+            new_z = z_data[new_start:]
 
-            # Minimal fading - keep colors strong throughout the trail
-            fade_samples = min(20, n_segments)
-            if is_grey:
-                # Grey trajectories are more transparent
-                alphas = np.full(n_segments, 0.3)  # Lower base visibility for background bats
-                # Apply subtle fade to RECENT samples
-                if fade_samples > 1:
-                    fade_indices = np.arange(fade_samples)
-                    alphas[-fade_samples:] = 0.3 + 0.3 * (fade_indices / (fade_samples - 1))
-                elif fade_samples == 1:
-                    alphas[-1:] = 0.6
-            else:
-                # Colored trajectories stay strong
-                alphas = np.full(n_segments, 0.75)  # Higher base visibility throughout
-                # Apply subtle fade to RECENT samples (end of trail slightly more visible)
-                if fade_samples > 1:
-                    fade_indices = np.arange(fade_samples)
-                    alphas[-fade_samples:] = 0.75 + 0.25 * (fade_indices / (fade_samples - 1))
-                elif fade_samples == 1:
-                    alphas[-1:] = 1.0  # Single point gets full alpha
+            if len(new_x) >= 2:
+                # Convert to numpy arrays
+                x_array = np.array(new_x)
+                y_array = np.array(new_y)
+                z_array = np.array(new_z)
 
-            # Simple linewidth progression (recent = thicker)
-            linewidths = np.linspace(1.0, 2.5, n_segments)
+                # Check for NaN values and skip if any are present
+                if not (np.isnan(x_array).any() or np.isnan(y_array).any() or np.isnan(z_array).any()):
+                    # Create line segments with distance filtering
+                    points = np.array([x_array, y_array, z_array]).T
 
-            # Create colors array efficiently
-            colors = [(color_rgb[0], color_rgb[1], color_rgb[2], alpha) for alpha in alphas]
-            
-            # Create and cache Line3DCollection (ONLY TRAILS - NO DOTS)
-            # Additional safety check for empty arrays
-            if (len(colors) > 0 and len(linewidths) > 0 and len(segments) > 0 and 
-                segments.size > 0 and len(alphas) > 0):
-                lc = Line3DCollection(segments, colors=colors, linewidths=linewidths, 
-                                    capstyle='round', joinstyle='round')
-                self.ax.add_collection3d(lc)
-                
-                # Cache the collection properly
-                self.cached_collections[bat_id] = lc
-                self.cache_dirty[bat_id] = False
-                self.last_data_lengths[bat_id] = current_length
-        
+                    # Build CONTINUOUS chains of segments (no gaps from distance filtering)
+                    # This prevents matplotlib from showing endpoint markers
+                    current_chain = []
+                    chains = []
+                    
+                    for i in range(len(points) - 1):
+                        p1 = points[i]
+                        p2 = points[i + 1]
+                        # Calculate Euclidean distance
+                        distance = np.sqrt(np.sum((p2 - p1) ** 2))
+
+                        # Only add segment if distance <= 1.0 meter
+                        if distance <= 1.0:
+                            current_chain.append([p1, p2])
+                        else:
+                            # Gap detected - save current chain and start new one
+                            if len(current_chain) > 0:
+                                chains.append((current_chain, i - len(current_chain), i))
+                                current_chain = []
+                    
+                    # Don't forget the last chain
+                    if len(current_chain) > 0:
+                        chains.append((current_chain, len(points) - len(current_chain) - 1, len(points) - 1))
+
+                    # BATCHING STRATEGY: Combine ALL chains into ONE large collection per bat
+                    # This minimizes the number of collections matplotlib must handle
+                    if len(chains) > 0:
+                        all_segments = []
+                        all_alphas = []
+                        
+                        # Collect all segments and their alphas
+                        for chain_segments, start_idx, end_idx in chains:
+                            for seg_idx, segment in enumerate(chain_segments):
+                                all_segments.append(segment)
+                                
+                                # Calculate alpha for this segment
+                                global_seg_idx = new_start + start_idx + seg_idx
+                                segments_from_end = current_length - 1 - global_seg_idx
+                                
+                                if segments_from_end < 20:  # Fade last 20 segments
+                                    fade_progress = (20 - segments_from_end) / 20
+                                    alpha = base_alpha + (fade_alpha - base_alpha) * fade_progress
+                                else:
+                                    alpha = base_alpha
+                                
+                                all_alphas.append(alpha)
+                        
+                        # Create ONE large collection for the entire bat trajectory
+                        # This dramatically reduces the number of objects matplotlib must render
+                        if len(all_segments) > 0:
+                            segments = np.array(all_segments)
+                            n_segments = len(segments)
+                            linewidths = np.full(n_segments, linewidth)
+                            colors = [(color_rgb[0], color_rgb[1], color_rgb[2], alpha) for alpha in all_alphas]
+                            
+                            # Create single large collection (PERFORMANCE OPTIMIZATION)
+                            # Disable antialiasing for better rotation performance
+                            lc = Line3DCollection(segments, colors=colors, linewidths=linewidths,
+                                                linestyles='solid', antialiased=False)  # Antialiasing off for speed
+                            self.bat_trail_collections[bat_id].append(lc)
+                            new_collections.append(lc)
+
+            # Update last plotted index
+            self.last_plotted_index[bat_id] = current_length
+
         # Only current position marker (SINGLE DOT ONLY) - dark theme edge
-        self.ax.scatter([x_data[-1]], [y_data[-1]], [z_data[-1]],
-                      c=color, s=120, alpha=1.0, edgecolors='#2B2D31',
-                      linewidth=2.5, marker='o')
+        if len(x_data) > 0:
+            self.ax.scatter([x_data[-1]], [y_data[-1]], [z_data[-1]],
+                          c=color, s=100, alpha=1.0, edgecolors='#2B2D31',
+                          linewidth=2.0, marker='o')
+        
+        return new_collections
     
     def _draw_fps_counter(self):
         """Draw FPS counter with performance metrics"""
@@ -664,61 +675,6 @@ class FlightDisplay3D:
                                           fontsize=10, color='#DCDDDE',
                                           bbox=dict(boxstyle='round,pad=0.3',
                                                    facecolor='#2B2D31', alpha=0.7, edgecolor='#4A5568'))
-    
-    def _cleanup_stationary_points(self):
-        """Remove stationary points to improve performance"""
-        for bat_id, data in self.flight_data.items():
-            if len(data['x']) < 100:  # Need enough points to analyze
-                continue
-            
-            x_data = list(data['x'])
-            y_data = list(data['y'])
-            z_data = list(data['z'])
-            timestamps = list(data['timestamps'])
-            
-            # Find stationary sequences
-            keep_indices = []
-            for i in range(len(x_data)):
-                if i == 0 or i == len(x_data) - 1:  # Always keep first and last
-                    keep_indices.append(i)
-                    continue
-                
-                # Check displacement over time window
-                start_time = timestamps[i] - self.stationary_time_window
-                displacement = 0
-                
-                for j in range(i-1, -1, -1):
-                    if timestamps[j] < start_time:
-                        break
-                    dx = x_data[i] - x_data[j]
-                    dy = y_data[i] - y_data[j]
-                    dz = z_data[i] - z_data[j]
-                    displacement = max(displacement, math.sqrt(dx*dx + dy*dy + dz*dz))
-                
-                # Keep point if significant movement or key position
-                if displacement > self.stationary_threshold or i % 10 == 0:  # Keep every 10th for continuity
-                    keep_indices.append(i)
-            
-            # Rebuild data with filtered points
-            if len(keep_indices) < len(x_data) * 0.8:  # Only if significant reduction
-                filtered_x = [x_data[i] for i in keep_indices]
-                filtered_y = [y_data[i] for i in keep_indices]
-                filtered_z = [z_data[i] for i in keep_indices]
-                filtered_timestamps = [timestamps[i] for i in keep_indices]
-                
-                # Replace data
-                data['x'].clear()
-                data['y'].clear()
-                data['z'].clear()
-                data['timestamps'].clear()
-                
-                data['x'].extend(filtered_x)
-                data['y'].extend(filtered_y)
-                data['z'].extend(filtered_z)
-                data['timestamps'].extend(filtered_timestamps)
-                
-                # Mark cache as dirty
-                self.cache_dirty[bat_id] = True
 
     def _clear_paths_with_confirmation(self):
         """Clear all flight paths with confirmation dialog"""
@@ -728,10 +684,22 @@ class FlightDisplay3D:
 
     def _clear_paths(self):
         """Clear all flight paths"""
-        self.flight_data.clear()
-        # Force redraw of static elements
+        # Clear data manager (shared data)
+        self.data_manager.clear()
+
+        # Clear all bat trail collections
+        for bat_id, collections in self.bat_trail_collections.items():
+            for collection in collections:
+                try:
+                    collection.remove()
+                except:
+                    pass
+        self.bat_trail_collections.clear()
+        self.last_plotted_index.clear()
+
+        # Force redraw
         self.static_elements_drawn = False
-        self._update_plot()
+        self.canvas.draw()
 
     def _reset_camera(self):
         """Reset camera to default view"""
@@ -744,9 +712,21 @@ class FlightDisplay3D:
         """Handle toggle changes for spheres and labels"""
         # Force redraw of static elements
         self.static_elements_drawn = False
-        self._update_plot()
+        # Note: User must click Refresh to see updated display
 
     def _on_selection_change(self, *args):
         """Handle bat selection change"""
-        # Don't redraw static elements when selection changes
-        self._update_plot()
+        # Clear all bat trail collections to force replot with new colors
+        for bat_id, collections in self.bat_trail_collections.items():
+            for collection in collections:
+                try:
+                    collection.remove()
+                except:
+                    pass
+        self.bat_trail_collections.clear()
+        
+        # Reset plotting indices
+        self.last_plotted_index.clear()
+        
+        # Note: User must click Refresh to see updated colors
+        print("Bat selection changed. Click 'Refresh 3D' to update.")

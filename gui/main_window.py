@@ -8,7 +8,8 @@ import time
 from typing import Dict, Any, Optional
 from .feeder_panel import FeederPanel
 from .bat_panel import BatPanel
-from .flight_display_3d import FlightDisplay3D
+from .flight_display_2d import FlightDisplay2D
+from .flight_data_manager import FlightDataManager
 from .session_controls import SessionControls
 from .comprehensive_config_display import ComprehensiveConfigDisplay
 
@@ -36,6 +37,9 @@ class MainWindow:
         self.update_thread: Optional[threading.Thread] = None
         self.system_started = False
         self.system = None  # Will be set by main system
+
+        # Create shared flight data manager (thread-safe)
+        self.flight_data_manager = FlightDataManager(max_points=10000)
 
         # Create main window
         self.root = tk.Tk()
@@ -230,17 +234,17 @@ class MainWindow:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
 
         # Create notebook for tabs
-        notebook = ttk.Notebook(main_frame)
-        notebook.pack(fill=tk.BOTH, expand=True)
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
 
         # Control tab
-        control_frame = ttk.Frame(notebook)
-        notebook.add(control_frame, text="Control")
+        control_frame = ttk.Frame(self.notebook)
+        self.notebook.add(control_frame, text="Control")
         self._setup_control_tab(control_frame)
 
         # Configuration tab (comprehensive display of all config values)
-        config_frame = ttk.Frame(notebook)
-        notebook.add(config_frame, text="Configuration")
+        config_frame = ttk.Frame(self.notebook)
+        self.notebook.add(config_frame, text="Configuration")
         self._setup_comprehensive_config_tab(config_frame)
 
         # Status bar
@@ -281,15 +285,20 @@ class MainWindow:
 
         self.bat_panel = BatPanel(bat_content, self.feeder_controller, self.settings)
 
-        # Right section - Flight Paths card (narrower)
-        flight_container, flight_content = self._create_card_panel(main_paned, "Flight Paths")
+        # Right section - Flight Paths card (narrower) - 2D real-time view
+        flight_container, flight_content = self._create_card_panel(main_paned, "Flight Paths (2D)")
         main_paned.add(flight_container, weight=7)
 
-        # Create flight display in the control tab
+        # Create 2D flight display in the control tab (real-time)
         room_config = self.settings.config.get('room', {})
         feeder_configs = self.settings.get_feeder_configs()
-        self.flight_display = FlightDisplay3D(flight_content, self.settings.get_gui_config(),
-                                            room_config, feeder_configs)
+        self.flight_display_2d = FlightDisplay2D(
+            flight_content,
+            self.settings.get_gui_config(),
+            room_config,
+            feeder_configs,
+            self.flight_data_manager
+        )
 
         # Set up position change callback to update flight display
         self.feeder_controller.set_position_change_callback(self._on_feeder_position_changed)
@@ -355,7 +364,7 @@ class MainWindow:
         if self.system_started:
             self.feeder_panel.start_updates()
             self.bat_panel.start_updates()
-            self.flight_display.start_updates()
+            self.flight_display_2d.start_updates()  # Only 2D is real-time
     
     def stop_gui_updates(self):
         """Stop the GUI update thread"""
@@ -366,8 +375,9 @@ class MainWindow:
             self.feeder_panel.stop_updates()
         if hasattr(self, 'bat_panel'):
             self.bat_panel.stop_updates()
-        if hasattr(self, 'flight_display'):
-            self.flight_display.stop_updates()
+        if hasattr(self, 'flight_display_2d'):
+            self.flight_display_2d.stop_updates()
+        # Note: flight_display_3d has no updates to stop (manual refresh)
         
         if self.update_thread and self.update_thread.is_alive():
             self.update_thread.join(timeout=1.0)
@@ -412,9 +422,14 @@ class MainWindow:
     
     
     def update_flight_display(self, bat_states: Dict):
-        """Update flight display with new data"""
-        if hasattr(self, 'flight_display') and self.system_started:
-            self.flight_display.update_positions(bat_states)
+        """Update flight display with new data (thread-safe)"""
+        if self.system_started:
+            # Add to shared data manager (thread-safe with 10x downsampling)
+            for bat_id, bat_state in bat_states.items():
+                if bat_state.last_position:
+                    self.flight_data_manager.add_position(bat_id, bat_state.last_position)
+            # Note: 2D display auto-updates via its thread
+            # Note: 3D display updates on manual refresh
     
     def set_connection_status(self, component: str, connected: bool):
         """Update connection status indicators with dark theme colors"""
@@ -437,14 +452,14 @@ class MainWindow:
         """Handle feeder position changes - update flight display and feeder panel"""
         try:
             # Update flight display with new feeder positions
-            if hasattr(self, 'flight_display'):
-                self.flight_display.update_feeder_positions(updated_feeder_configs)
-            
+            if hasattr(self, 'flight_display_2d'):
+                self.flight_display_2d.update_feeder_positions(updated_feeder_configs)
+
             # Update feeder panel displays
             if hasattr(self, 'feeder_panel'):
                 for feeder_config in updated_feeder_configs:
                     self.feeder_panel._update_position_display(feeder_config.feeder_id)
-                    
+
         except Exception as e:
             self.event_logger.error(f"Error handling feeder position change: {e}")
 
@@ -478,7 +493,7 @@ class MainWindow:
             # Start component updates
             self.feeder_panel.start_updates()
             self.bat_panel.start_updates()
-            self.flight_display.start_updates()
+            self.flight_display_2d.start_updates()  # Only 2D is real-time
             
         except Exception as e:
             self.event_logger.error(f"Error starting session: {e}")
@@ -499,7 +514,7 @@ class MainWindow:
             # Stop component updates
             self.feeder_panel.stop_updates()
             self.bat_panel.stop_updates()
-            self.flight_display.stop_updates()
+            self.flight_display_2d.stop_updates()  # Only 2D has updates to stop
             
         except Exception as e:
             self.event_logger.error(f"Error stopping session: {e}")
