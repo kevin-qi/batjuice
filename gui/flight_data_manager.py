@@ -66,6 +66,10 @@ class FlightDataManager:
                 self.flight_data[bat_id]['y'].append(position.y)
                 self.flight_data[bat_id]['z'].append(position.z)
                 self.flight_data[bat_id]['timestamps'].append(position.timestamp)
+
+            # Periodic log every 100 displayed points (1000 received positions)
+            if len(self.flight_data[bat_id]['x']) % 100 == 0:
+                print(f"Display: {bat_id} now has {len(self.flight_data[bat_id]['x'])} points (downsampled from {self._point_counters[bat_id]})")
             
             # Periodic cleanup of stationary points
             current_time = time_module.time()

@@ -42,12 +42,23 @@ class BaseTracker(ABC):
     def _fetch_data(self):
         """Internal method to fetch data from tracking system"""
         pass
-    
+
+    def _flush_buffer(self):
+        """Flush stale data from buffer before starting tracking
+
+        Default implementation does nothing. Override in subclasses that need
+        to flush buffered data (e.g., continuous broadcast systems).
+        """
+        pass
+
     def start_tracking(self):
         """Start the tracking thread"""
         if self.running:
             return
-            
+
+        # Flush any stale buffered data to ensure fresh position data
+        self._flush_buffer()
+
         self.running = True
         self.thread = threading.Thread(target=self._tracking_loop, daemon=True)
         self.thread.start()

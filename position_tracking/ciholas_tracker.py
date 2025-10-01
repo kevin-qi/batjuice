@@ -34,7 +34,12 @@ class CiholasTracker(BaseTracker):
         self.serial_numbers = config.get('serial_numbers', [])
         if not self.serial_numbers:
             print("Warning: No serial numbers provided for Ciholas tracker")
-        
+
+        # Sync tag serial number (to ignore in data stream)
+        self.sync_serial_number = config.get('sync_serial_number', None)
+        if self.sync_serial_number:
+            print(f"Ciholas: Will ignore sync tag with serial number {self.sync_serial_number}")
+
         # Coordinate conversion settings
         self.coordinate_scale = config.get('coordinate_scale', 1000.0)  # Default: mm to meters
         self.coordinate_units = config.get('coordinate_units', 'mm')
@@ -86,10 +91,10 @@ class CiholasTracker(BaseTracker):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2097152)
 
             print(f"Ciholas tracker connected to CDP multicast {self.multicast_group}:{self.local_port}")
-            
-            # Flush any initial data in buffer
-            self._flush_buffer()
-            
+
+            # Note: Buffer flushing is done when tracking starts (in start_tracking())
+            # to ensure fresh data at session start, not app startup
+
             return True
             
         except Exception as e:
@@ -135,29 +140,36 @@ class CiholasTracker(BaseTracker):
             time.sleep(0.1)
     
     def _flush_buffer(self):
-        """Flush any initial data in the UDP buffer"""
+        """Flush old data from buffer using time-based approach
+
+        For continuous broadcast streams, flush for a fixed duration to ensure
+        the next packet received will be current (not stale buffered data).
+        """
         if not self.socket:
             return
 
         try:
-            # Set a short timeout for flushing
+            # Set a very short timeout for rapid packet consumption
             original_timeout = self.socket.gettimeout()
-            self.socket.settimeout(0.1)
+            self.socket.settimeout(0.01)  # 10ms timeout
 
-            # Read and discard packets - limit to 100 packets or until timeout
-            # This prevents hanging if data is continuously streaming
-            flush_count = 0
-            max_flush = 100
+            # Flush for 0.5 seconds - guarantees next packet is current
+            start_time = time.time()
+            max_flush_duration = 0.5  # seconds
+            packets_flushed = 0
 
-            while flush_count < max_flush:
+            # Keep flushing until enough time has passed
+            while (time.time() - start_time) < max_flush_duration:
                 try:
                     self.socket.recv(65536)
-                    flush_count += 1
+                    packets_flushed += 1
                 except socket.timeout:
+                    # No data available, can exit early
                     break
 
-            if flush_count > 0:
-                print(f"Flushed {flush_count} packets from buffer")
+            flush_duration = time.time() - start_time
+            if packets_flushed > 0:
+                print(f"Flushed {packets_flushed} packets in {flush_duration:.2f}s - data now current")
 
             # Restore original timeout
             self.socket.settimeout(original_timeout)
@@ -227,7 +239,7 @@ class CiholasTracker(BaseTracker):
                     
                     z_p = struct.unpack('<i', di_data[0:4])[0]  # int32
 
-                    print(f"CDP: Decoded position - SN:{sn_p}, X:{x_p}, Y:{y_p}, Z:{z_p}")
+                    # Successfully decoded position packet
                     return (sn_p, nt_p, x_p, y_p, z_p)
                     
             except socket.timeout:
@@ -252,6 +264,10 @@ class CiholasTracker(BaseTracker):
             x, y, z: Position coordinates (likely in mm or other units)
         """
         try:
+            # Ignore sync tag if configured
+            if self.sync_serial_number and serial_number == self.sync_serial_number:
+                return  # Silently skip sync tag data
+
             # Find bat index from serial number
             bat_index = self._get_bat_index_from_serial(serial_number)
 
@@ -271,7 +287,7 @@ class CiholasTracker(BaseTracker):
 
             # Create bat and tag IDs
             bat_id = f"bat_{bat_index:02d}"
-            tag_id = f"tag_{serial_number}"
+            tag_id = str(serial_number)  # Use serial number directly, no prefix
 
             # Create position object
             position = Position(
@@ -290,7 +306,7 @@ class CiholasTracker(BaseTracker):
             # Add to position queue and trigger callback
             self._add_position(position)
 
-            print(f"Position added: {bat_id} at ({x_m:.3f}, {y_m:.3f}, {z_m:.3f}) m")
+            # Note: Downsampling (10x) happens in FlightDataManager, not here
 
         except Exception as e:
             print(f"Error processing position data: {e}")
