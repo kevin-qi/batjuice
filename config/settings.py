@@ -10,21 +10,24 @@ from utils.data_structures import TrackingSystem
 class Settings:
     """Manages system configuration settings"""
 
-    def __init__(self, config_file: str = "Kevin/proximity_study", mock_config_file: str = "config/mock_config.json"):
+    def __init__(self, config_file: str, mock_config_file: str = "config/mock_config.json"):
         """
         Initialize settings from configuration file
 
         Args:
-            config_file: Path to experiment config file. Can be:
+            config_file: Path to experiment config file. Supports multiple formats:
                 - Short format: "Kevin/proximity_study" (automatically adds config/ prefix and .json suffix)
-                - Full path: "config/Kevin/proximity_study.json"
+                - Relative to config/: "Kevin/proximity_study.json"
+                - Absolute path: "/absolute/path/to/config.json"
+                - Relative path: "../other/location/config.json"
+                Extensions (.json or .py) are optional - base name is what matters
             mock_config_file: Path to mock configuration file (for testing only, separate from experiments)
         """
         self.task_logic_path = None  # Initialize before _resolve_config_path
         self.config_file = self._resolve_config_path(config_file)
         self.mock_config_file = mock_config_file
         self.config = self._load_and_validate_config()
-        self.mock_config = None  # Loaded on demand for mock mode
+        self.mock_config = None  # Loaded on demand for mock mode  # Loaded on demand for mock mode
 
     def _resolve_config_path(self, config_file: str) -> str:
         """
@@ -33,16 +36,39 @@ class Settings:
         Supports formats:
         - "Kevin/proximity_study" -> "config/Kevin/proximity_study.json"
         - "config/Kevin/proximity_study.json" -> as-is
+        - "/absolute/path/to/config.json" -> as-is
+        - "relative/path/to/config.json" -> as-is if file exists, else try config/ prefix
         """
-        # If it already has .json extension and starts with config/, use as-is
-        if config_file.endswith('.json'):
-            base_path = config_file.replace('.json', '')
-        else:
-            # Short format: add config/ prefix if not present
-            if not config_file.startswith('config/'):
-                base_path = f"config/{config_file}"
+        # If it's an absolute path, use as-is
+        if os.path.isabs(config_file):
+            if config_file.endswith('.json'):
+                base_path = config_file.replace('.json', '')
+            elif config_file.endswith('.py'):
+                base_path = config_file.replace('.py', '')
             else:
                 base_path = config_file
+        # If it already ends with .json or .py
+        elif config_file.endswith('.json') or config_file.endswith('.py'):
+            # Remove extension to get base path
+            base_path = config_file.replace('.json', '').replace('.py', '')
+            
+            # If it starts with config/, use as-is
+            if base_path.startswith('config/'):
+                pass
+            # Otherwise, check if file exists at this relative path
+            elif os.path.exists(f"{base_path}.json") or os.path.exists(f"{base_path}.py"):
+                pass
+            # Otherwise, prepend config/
+            else:
+                base_path = f"config/{base_path}"
+        else:
+            # No extension provided - short format
+            # If starts with config/, use as-is
+            if config_file.startswith('config/'):
+                base_path = config_file
+            # Otherwise, prepend config/
+            else:
+                base_path = f"config/{config_file}"
 
         # Set paths for both .json and .py files
         json_path = f"{base_path}.json"
@@ -85,6 +111,10 @@ class Settings:
     
     def _apply_defaults(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Apply default values for missing optional configuration"""
+        # Apply experiment defaults
+        experiment = config.setdefault('experiment', {})
+        experiment.setdefault('data_directory', 'data')
+        
         # Apply Arduino defaults
         arduino = config.setdefault('arduino', {})
         arduino.setdefault('port', 'COM3')
@@ -93,13 +123,11 @@ class Settings:
         
         # Apply GUI defaults
         gui = config.setdefault('gui', {})
-        gui.setdefault('update_rate_hz', 30)
-        gui.setdefault('plot_update_rate_hz', 10)
+        gui.setdefault('refresh_rate_hz', 10)
         gui.setdefault('window_title', 'BatFeeder Control System')
         
         # Apply logging defaults
         logging_config = config.setdefault('logging', {})
-        logging_config.setdefault('data_directory', 'data')
         logging_config.setdefault('log_level', 'INFO')
 
         return config
@@ -210,6 +238,10 @@ class Settings:
         """Get logging configuration"""
         return self.config.get("logging", {})
 
+    def get_data_directory(self) -> str:
+        """Get data directory from experiment configuration"""
+        return self.config.get("experiment", {}).get("data_directory", "data")
+
     def get_mock_rtls_config(self) -> Dict[str, Any]:
         """Get mock RTLS configuration (for testing only)"""
         mock_config = self._load_mock_config()
@@ -230,7 +262,7 @@ class Settings:
             "RTLS Backend": self.get_rtls_backend().upper(),
             "Room Bounds": f"{self.get_room_config().get('units', 'meters')}",
             "Arduino Port": self.get_arduino_config().get('port', 'Unknown'),
-            "Data Directory": self.get_logging_config().get('data_directory', 'data'),
+            "Data Directory": self.get_data_directory(),
             "Feeders": len(self.get_feeder_configs()),
-            "GUI Update Rate": f"{self.get_gui_config().get('update_rate_hz', 30)} Hz"
+            "GUI Refresh Rate": f"{self.get_gui_config().get('refresh_rate_hz', 10)} Hz"
         }

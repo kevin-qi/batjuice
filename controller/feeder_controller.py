@@ -247,25 +247,25 @@ class FeederController:
             bat_pos = bat.last_position[:3]
             bat_position = bat_pos
             distance = self._calculate_distance(bat_pos, feeder.position)
-        
-        # Record beam break in system state
-        self.system_state.record_beam_break(feeder_id, triggering_bat_id, distance, bat_position)
-        
+
         # Update system state timestamp
         self.system_state.timestamp = current_time
-        
+
         # Call task logic to determine if reward should be delivered
         should_deliver, reason = should_deliver_reward(
             self.system_state, feeder_id, triggering_bat_id
         )
-        
+
         # Debug output - show current bat state
         bat_activation_state = bat.activation_state
         bat_last_reward_feeder = bat.last_reward_feeder_id
         print(f"🦇 Bat {triggering_bat_id} state: {bat_activation_state} (last reward feeder: {bat_last_reward_feeder})")
         print(f"🤖 Task logic decision: {should_deliver} - {reason}")
-        
+
         if should_deliver:
+            # ONLY record beam break when task logic approves reward delivery
+            # This ensures beam break count = reward request count (not including INACTIVE triggers)
+            self.system_state.record_beam_break(feeder_id, triggering_bat_id, distance, bat_position)
             success = self._deliver_reward(feeder_id, triggering_bat_id)
             if success:
                 self.stats['rewards_delivered'] += 1
@@ -476,7 +476,7 @@ class FeederController:
                     rewards = state.rewards_per_feeder.get(i, 0)
                     flight_parts.append(str(flights))
                     reward_parts.append(str(rewards))
-                return ("|".join(flight_parts), "|".join(reward_parts))
+                return (" | ".join(flight_parts), " | ".join(reward_parts))
             
             state.get_feeder_stats_string = get_feeder_stats_string
             states[bat_id] = state
@@ -500,7 +500,9 @@ class FeederController:
             config.beam_break_count = len(feeder.beam_break_history)
             config.reward_delivery_count = len(feeder.reward_delivery_history)
             config.probability = 1.0  # Default probability for GUI compatibility
-            
+            config.active = feeder.active  # Whether feeder is active
+            config.state = 'Ready' if feeder.active else 'Inactive'
+
             configs[feeder_id] = config
         
         return configs
