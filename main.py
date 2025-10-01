@@ -44,8 +44,12 @@ class BatFeederSystem:
         initialize_task_logic(self.settings)
         
         # Initialize logging
-        self.data_logger = DataLogger(self.settings.get_logging_config())
-        self.event_logger = EventLogger(self.settings.get_logging_config())
+        log_config = {
+            'data_directory': self.settings.get_data_directory(),
+            'log_level': self.settings.get_logging_config().get('log_level', 'INFO')
+        }
+        self.data_logger = DataLogger(log_config)
+        self.event_logger = EventLogger(log_config)
         
         # Initialize components
         self.position_tracker = None
@@ -338,8 +342,8 @@ def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='Bat Feeder Control System')
     parser.add_argument('--config', '-c',
-                       default='Kevin/proximity_study',
-                       help='Experiment config name (default: Kevin/proximity_study)')
+                       required=True,
+                       help='Config path: short form "Kevin/proximity_study", relative "Kevin/exp.json", or absolute path')
     parser.add_argument('--mock', action='store_true', 
                        help='Run in full mock mode (both Arduino and RTLS)')
     parser.add_argument('--mock-arduino', action='store_true',
