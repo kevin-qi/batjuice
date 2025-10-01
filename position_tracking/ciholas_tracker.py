@@ -81,7 +81,10 @@ class CiholasTracker(BaseTracker):
             
             # Set timeout
             self.socket.settimeout(self.timeout)
-            
+
+            # Increase OS-level receive buffer to prevent packet loss (2MB)
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2097152)
+
             print(f"Ciholas tracker connected to CDP multicast {self.multicast_group}:{self.local_port}")
             
             # Flush any initial data in buffer
@@ -144,7 +147,7 @@ class CiholasTracker(BaseTracker):
             # Read and discard packets until timeout
             while True:
                 try:
-                    self.socket.recv(4096)
+                    self.socket.recv(65536)
                 except socket.timeout:
                     break
             
@@ -172,8 +175,8 @@ class CiholasTracker(BaseTracker):
         # Only get position V3 data (type 309)
         while packet_type != 309:
             try:
-                # Read UDP packet
-                packet_data, addr = self.socket.recvfrom(4096)
+                # Read UDP packet (64KB max UDP datagram size)
+                packet_data, addr = self.socket.recvfrom(65536)
                 
                 if len(packet_data) < 21:
                     continue  # Packet too small
@@ -215,7 +218,8 @@ class CiholasTracker(BaseTracker):
                     di_data = di_data[4:]
                     
                     z_p = struct.unpack('<i', di_data[0:4])[0]  # int32
-                    
+
+                    print(f"CDP: Decoded position - SN:{sn_p}, X:{x_p}, Y:{y_p}, Z:{z_p}")
                     return (sn_p, nt_p, x_p, y_p, z_p)
                     
             except socket.timeout:
@@ -242,9 +246,10 @@ class CiholasTracker(BaseTracker):
         try:
             # Find bat index from serial number
             bat_index = self._get_bat_index_from_serial(serial_number)
-            
+
             if bat_index is None:
                 # Unknown serial number, skip
+                print(f"Warning: Unknown serial number {serial_number} (not in configured list: {[s['serial_number'] for s in self.bat_states.values()]})")
                 return
             
             # Check if this bat is enabled
@@ -276,7 +281,9 @@ class CiholasTracker(BaseTracker):
             
             # Add to position queue and trigger callback
             self._add_position(position)
-            
+
+            print(f"Position added: {bat_id} at ({x_cm:.2f}, {y_cm:.2f}, {z_cm:.2f}) cm")
+
         except Exception as e:
             print(f"Error processing position data: {e}")
     
