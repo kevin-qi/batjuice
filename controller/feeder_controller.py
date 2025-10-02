@@ -251,6 +251,9 @@ class FeederController:
         # Update system state timestamp
         self.system_state.timestamp = current_time
 
+        # ALWAYS record beam break (flight) when bat triggers it, regardless of task logic decision
+        self.system_state.record_beam_break(feeder_id, triggering_bat_id, distance, bat_position)
+
         # Call task logic to determine if reward should be delivered
         should_deliver, reason = should_deliver_reward(
             self.system_state, feeder_id, triggering_bat_id
@@ -263,9 +266,6 @@ class FeederController:
         print(f"🤖 Task logic decision: {should_deliver} - {reason}")
 
         if should_deliver:
-            # ONLY record beam break when task logic approves reward delivery
-            # This ensures beam break count = reward request count (not including INACTIVE triggers)
-            self.system_state.record_beam_break(feeder_id, triggering_bat_id, distance, bat_position)
             success = self._deliver_reward(feeder_id, triggering_bat_id)
             if success:
                 self.stats['rewards_delivered'] += 1
@@ -420,6 +420,9 @@ class FeederController:
         """Get current bat states for GUI"""
         states = {}
         
+        # Get sorted list of actual feeder IDs
+        feeder_ids = sorted(self.system_state.feeders.keys())
+        
         for bat_id, bat in self.system_state.bats.items():
             # Create simple state object for GUI
             state = type('BatState', (), {})()
@@ -467,13 +470,13 @@ class FeederController:
                 state.last_beam_break_time = 0.0
                 state.last_triggered_feeder_id = None
             
-            # Add helper method for GUI compatibility
-            def get_feeder_stats_string(max_feeders=4):
+            # Add helper method for GUI compatibility - use actual feeder IDs
+            def get_feeder_stats_string():
                 flight_parts = []
                 reward_parts = []
-                for i in range(max_feeders):
-                    flights = state.flights_per_feeder.get(i, 0)
-                    rewards = state.rewards_per_feeder.get(i, 0)
+                for feeder_id in feeder_ids:
+                    flights = state.flights_per_feeder.get(feeder_id, 0)
+                    rewards = state.rewards_per_feeder.get(feeder_id, 0)
                     flight_parts.append(str(flights))
                     reward_parts.append(str(rewards))
                 return (" | ".join(flight_parts), " | ".join(reward_parts))
