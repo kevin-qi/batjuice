@@ -68,71 +68,85 @@ class FlightDisplay2D:
         self.bat_lines = {}  # bat_id -> Line2D object
         self.bat_scatter_artists = []  # Current position markers
 
+        # Track bat list to avoid recreating buttons unnecessarily
+        self.current_bat_list = []
+
         # Setup display
         self._setup_display()
 
     def _setup_display(self):
         """Setup the 2D flight display layout"""
-        # Control frame
-        control_frame = ttk.Frame(self.parent)
+        # Control frame with dark background
+        control_frame = tk.Frame(self.parent, bg='#2B2D31')
         control_frame.pack(fill=tk.X, padx=5, pady=5)
 
         # View plane selection with radio buttons
-        ttk.Label(control_frame, text="View:").pack(side=tk.LEFT, padx=(0, 5))
-        view_frame = ttk.Frame(control_frame)
+        ttk.Label(control_frame, text="View:", background='#2B2D31', foreground='#DCDDDE').pack(side=tk.LEFT, padx=(0, 5))
+        view_frame = tk.Frame(control_frame, bg='#2B2D31')
         view_frame.pack(side=tk.LEFT, padx=(0, 20))
         
-        ttk.Radiobutton(view_frame, text="XY", variable=self.view_plane, value="XY").pack(side=tk.LEFT)
-        ttk.Radiobutton(view_frame, text="XZ", variable=self.view_plane, value="XZ").pack(side=tk.LEFT)
-        ttk.Radiobutton(view_frame, text="YZ", variable=self.view_plane, value="YZ").pack(side=tk.LEFT)
+        tk.Radiobutton(view_frame, text="XY", variable=self.view_plane, value="XY",
+                      bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                      activebackground='#2B2D31', activeforeground='#DCDDDE').pack(side=tk.LEFT)
+        tk.Radiobutton(view_frame, text="XZ", variable=self.view_plane, value="XZ",
+                      bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                      activebackground='#2B2D31', activeforeground='#DCDDDE').pack(side=tk.LEFT)
+        tk.Radiobutton(view_frame, text="YZ", variable=self.view_plane, value="YZ",
+                      bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                      activebackground='#2B2D31', activeforeground='#DCDDDE').pack(side=tk.LEFT)
 
         # Clear button
-        clear_btn = ttk.Button(control_frame, text="Clear Paths", command=self._clear_paths_with_confirmation)
+        clear_btn = tk.Button(control_frame, text="Clear Paths", command=self._clear_paths_with_confirmation,
+                             bg='#3B3D42', fg='#DCDDDE', activebackground='#4B4D52', activeforeground='#DCDDDE',
+                             relief=tk.RAISED, borderwidth=1)
         clear_btn.pack(side=tk.LEFT, padx=(5, 20))
 
         # Toggle controls
-        ttk.Label(control_frame, text="Show:").pack(side=tk.LEFT)
+        tk.Label(control_frame, text="Show:", bg='#2B2D31', fg='#DCDDDE').pack(side=tk.LEFT)
 
-        trigger_check = ttk.Checkbutton(control_frame, text="Trigger Radius",
+        trigger_check = tk.Checkbutton(control_frame, text="Trigger Radius",
                                         variable=self.show_trigger_radius,
-                                        command=self._toggle_display)
+                                        command=self._toggle_display,
+                                        bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                                        activebackground='#2B2D31', activeforeground='#DCDDDE')
         trigger_check.pack(side=tk.LEFT, padx=(5, 5))
 
-        reactivation_check = ttk.Checkbutton(control_frame, text="Reactivation Radius",
+        reactivation_check = tk.Checkbutton(control_frame, text="Reactivation Radius",
                                              variable=self.show_reactivation_radius,
-                                             command=self._toggle_display)
+                                             command=self._toggle_display,
+                                             bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                                             activebackground='#2B2D31', activeforeground='#DCDDDE')
         reactivation_check.pack(side=tk.LEFT, padx=(5, 5))
 
-        label_check = ttk.Checkbutton(control_frame, text="Labels",
+        label_check = tk.Checkbutton(control_frame, text="Labels",
                                       variable=self.show_labels,
-                                      command=self._toggle_display)
+                                      command=self._toggle_display,
+                                      bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                                      activebackground='#2B2D31', activeforeground='#DCDDDE')
         label_check.pack(side=tk.LEFT, padx=(5, 5))
 
-        # Bat selection list frame (below controls)
-        bat_selection_frame = ttk.LabelFrame(self.parent, text="Display Bat", padding=5)
+        # Bat selection with radio buttons (below controls)
+        bat_selection_frame = tk.Frame(self.parent, bg='#2B2D31')
         bat_selection_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
         
-        # Create scrollable list for bat selection
-        bat_list_container = ttk.Frame(bat_selection_frame)
-        bat_list_container.pack(fill=tk.BOTH, expand=True)
+        tk.Label(bat_selection_frame, text="Display Bat:", 
+                bg='#2B2D31', fg='#DCDDDE').pack(side=tk.LEFT, padx=(0, 10))
         
-        self.bat_listbox = tk.Listbox(bat_list_container, height=3, 
-                                      selectmode=tk.SINGLE, exportselection=False,
-                                      bg='#2B2D31', fg='#DCDDDE', 
-                                      selectbackground='#5865F2', selectforeground='white')
-        self.bat_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Container for radio buttons (will hold up to 2 rows)
+        self.bat_button_container = tk.Frame(bat_selection_frame, bg='#2B2D31')
+        self.bat_button_container.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        bat_scrollbar = ttk.Scrollbar(bat_list_container, orient=tk.VERTICAL, 
-                                      command=self.bat_listbox.yview)
-        bat_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.bat_listbox.config(yscrollcommand=bat_scrollbar.set)
+        # Create initial row with "All" button
+        self.bat_radio_buttons = []
+        row1 = tk.Frame(self.bat_button_container, bg='#2B2D31')
+        row1.pack(side=tk.TOP, anchor=tk.W)
         
-        # Initialize with "All"
-        self.bat_listbox.insert(tk.END, "All")
-        self.bat_listbox.selection_set(0)
-        
-        # Bind selection event
-        self.bat_listbox.bind('<<ListboxSelect>>', self._on_bat_list_select)
+        all_btn = tk.Radiobutton(row1, text="All", variable=self.selected_bat, value="All",
+                                bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                                activebackground='#2B2D31', activeforeground='#DCDDDE',
+                                command=self._on_bat_radio_select)
+        all_btn.pack(side=tk.LEFT, padx=2)
+        self.bat_radio_buttons.append(all_btn)
 
         # Matplotlib 2D figure - dark theme
         self.fig, self.ax = plt.subplots(figsize=(7, 7))
@@ -345,27 +359,53 @@ class FlightDisplay2D:
             # Get data snapshot (thread-safe)
             flight_data = self.data_manager.get_snapshot()
 
-            # Update bat listbox
-            current_bats = list(flight_data.keys())
-            current_bats.insert(0, "All")
+            # Update bat radio buttons ONLY if bat list changed
+            current_bats = ["All"] + list(flight_data.keys())
             
-            # Get current selection
-            current_selection = self.bat_listbox.curselection()
-            selected_value = self.bat_listbox.get(current_selection[0]) if current_selection else "All"
-            
-            # Update listbox contents
-            self.bat_listbox.delete(0, tk.END)
-            for bat in current_bats:
-                self.bat_listbox.insert(tk.END, bat)
-            
-            # Restore selection
-            try:
-                idx = current_bats.index(selected_value)
-                self.bat_listbox.selection_set(idx)
-            except (ValueError, tk.TclError):
-                # If previously selected bat no longer exists, select "All"
-                self.bat_listbox.selection_set(0)
-                self.selected_bat.set("All")
+            if current_bats != self.current_bat_list:
+                # Get current selection before rebuilding
+                selected_value = self.selected_bat.get()
+                
+                # Clear existing buttons
+                for btn in self.bat_radio_buttons:
+                    btn.destroy()
+                self.bat_radio_buttons.clear()
+                
+                # Clear container
+                for widget in self.bat_button_container.winfo_children():
+                    widget.destroy()
+                
+                # Create rows (max 8 buttons per row, max 2 rows)
+                max_per_row = 8
+                max_rows = 2
+                max_buttons = max_per_row * max_rows
+                
+                # Limit bats if we have too many
+                display_bats = current_bats[:max_buttons]
+                
+                # Create radio buttons in rows
+                for i, bat_id in enumerate(display_bats):
+                    row_idx = i // max_per_row
+                    col_idx = i % max_per_row
+                    
+                    # Create row if needed
+                    if col_idx == 0:
+                        row = tk.Frame(self.bat_button_container, bg='#2B2D31')
+                        row.pack(side=tk.TOP, anchor=tk.W)
+                    
+                    btn = tk.Radiobutton(row, text=bat_id, variable=self.selected_bat, value=bat_id,
+                                        bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                                        activebackground='#2B2D31', activeforeground='#DCDDDE',
+                                        command=self._on_bat_radio_select)
+                    btn.pack(side=tk.LEFT, padx=2)
+                    self.bat_radio_buttons.append(btn)
+                
+                # Restore selection if it still exists
+                if selected_value not in display_bats:
+                    self.selected_bat.set("All")
+                
+                # Update cached bat list
+                self.current_bat_list = current_bats
 
             # Plot bat paths
             selected_bat = self.selected_bat.get()
@@ -533,20 +573,15 @@ class FlightDisplay2D:
                 pass
         self.bat_lines.clear()
 
-    def _on_bat_list_select(self, event):
-        """Handle bat selection from listbox"""
-        selection = self.bat_listbox.curselection()
-        if selection:
-            selected_bat = self.bat_listbox.get(selection[0])
-            self.selected_bat.set(selected_bat)
-            
-            # Clear all line objects to force replot with new colors
-            for bat_id, line in self.bat_lines.items():
-                try:
-                    line.remove()
-                except:
-                    pass
-            self.bat_lines.clear()
+    def _on_bat_radio_select(self):
+        """Handle bat selection from radio buttons"""
+        # Clear all line objects to force replot with new colors
+        for bat_id, line in self.bat_lines.items():
+            try:
+                line.remove()
+            except:
+                pass
+        self.bat_lines.clear()
 
     def _on_view_change(self, *args):
         """Handle view plane change"""
