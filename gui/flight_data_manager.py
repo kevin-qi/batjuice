@@ -60,8 +60,8 @@ class FlightDataManager:
 
         self._point_counters[bat_id] += 1
 
-        # 10x downsampling: only add every 10th point
-        if self._point_counters[bat_id] % self.display_subsample_rate == 0:
+        # Add every position (downsampling now handled by GUI update rate)
+        if True:  # Always add - rate limiting done by caller
             with self.lock:
                 self.flight_data[bat_id]['x'].append(position.x)
                 self.flight_data[bat_id]['y'].append(position.y)

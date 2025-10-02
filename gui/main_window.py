@@ -384,8 +384,8 @@ class MainWindow:
     
     def _update_loop(self):
         """Main GUI update loop"""
-        update_rate = self.settings.get_gui_config().get('update_rate_ms', 50)
-        update_interval = update_rate / 1000.0
+        refresh_rate_hz = self.settings.get_gui_config().get('refresh_rate_hz', 10)
+        update_interval = 1.0 / refresh_rate_hz
         
         while self.running:
             try:
