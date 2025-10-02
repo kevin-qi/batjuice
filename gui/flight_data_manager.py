@@ -43,7 +43,7 @@ class FlightDataManager:
         self.display_subsample_rate = 10  # Show every 10th point (100Hz → 10Hz)
         
         # Smoothing parameters
-        self.ema_alpha = 0.3  # EMA smoothing factor (0 = more smooth, 1 = no smoothing)
+        self.ema_alpha = 0.8  # EMA smoothing factor (0 = more smooth, 1 = no smoothing)
         
         # Stationary point cleanup
         self.last_cleanup_time = {}  # bat_id -> last cleanup time

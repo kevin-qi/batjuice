@@ -251,8 +251,13 @@ class FeederController:
         # Update system state timestamp
         self.system_state.timestamp = current_time
 
-        # ALWAYS record beam break (flight) when bat triggers it, regardless of task logic decision
-        self.system_state.record_beam_break(feeder_id, triggering_bat_id, distance, bat_position)
+        # Only record beam break as a "flight" if bat is ACTIVE (new visit, not already sitting on feeder)
+        # This prevents counting multiple beam breaks from the same bat staying on the feeder
+        if bat.activation_state == "ACTIVE":
+            self.system_state.record_beam_break(feeder_id, triggering_bat_id, distance, bat_position)
+            print(f"✈️  FLIGHT recorded: Bat {triggering_bat_id} at feeder {feeder_id}")
+        else:
+            print(f"⏭️  Beam break NOT counted as flight (bat {triggering_bat_id} is {bat.activation_state})")
 
         # Call task logic to determine if reward should be delivered
         should_deliver, reason = should_deliver_reward(
@@ -415,6 +420,10 @@ class FeederController:
                 feeder.reactivation_distance = kwargs['reactivation_distance']
             if 'active' in kwargs:
                 feeder.active = kwargs['active']
+            if 'probability' in kwargs:
+                # Update probability in stored feeder_configs
+                if feeder_id in self.feeder_configs:
+                    self.feeder_configs[feeder_id].probability = kwargs['probability']
     
     def get_bat_states(self) -> Dict:
         """Get current bat states for GUI"""
@@ -471,17 +480,24 @@ class FeederController:
                 state.last_triggered_feeder_id = None
             
             # Add helper method for GUI compatibility - use actual feeder IDs
-            def get_feeder_stats_string():
-                flight_parts = []
-                reward_parts = []
-                for feeder_id in feeder_ids:
-                    flights = state.flights_per_feeder.get(feeder_id, 0)
-                    rewards = state.rewards_per_feeder.get(feeder_id, 0)
-                    flight_parts.append(str(flights))
-                    reward_parts.append(str(rewards))
-                return (" | ".join(flight_parts), " | ".join(reward_parts))
+            # Fix closure issue by capturing state variables in default arguments
+            def make_stats_string(flights_dict, rewards_dict, fids):
+                def get_feeder_stats_string():
+                    flight_parts = []
+                    reward_parts = []
+                    for feeder_id in fids:
+                        flights = flights_dict.get(feeder_id, 0)
+                        rewards = rewards_dict.get(feeder_id, 0)
+                        flight_parts.append(str(flights))
+                        reward_parts.append(str(rewards))
+                    return (" | ".join(flight_parts), " | ".join(reward_parts))
+                return get_feeder_stats_string
             
-            state.get_feeder_stats_string = get_feeder_stats_string
+            state.get_feeder_stats_string = make_stats_string(
+                state.flights_per_feeder, 
+                state.rewards_per_feeder, 
+                feeder_ids
+            )
             states[bat_id] = state
         
         return states
@@ -502,7 +518,13 @@ class FeederController:
             config.activation_radius = feeder.activation_radius
             config.beam_break_count = len(feeder.beam_break_history)
             config.reward_delivery_count = len(feeder.reward_delivery_history)
-            config.probability = 1.0  # Default probability for GUI compatibility
+            
+            # Get probability from stored feeder_configs
+            if feeder_id in self.feeder_configs:
+                config.probability = self.feeder_configs[feeder_id].probability
+            else:
+                config.probability = 1.0  # Default if not found
+                
             config.active = feeder.active  # Whether feeder is active
             config.state = 'Ready' if feeder.active else 'Inactive'
 
