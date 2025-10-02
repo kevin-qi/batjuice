@@ -56,7 +56,6 @@ class FlightDataManager:
         if bat_id not in self._point_counters:
             self._point_counters[bat_id] = 0
             self.last_cleanup_time[bat_id] = time_module.time()
-            print(f"FlightDataManager: Started tracking {bat_id} with {self.display_subsample_rate}x downsampling")
 
         self._point_counters[bat_id] += 1
 
@@ -68,13 +67,7 @@ class FlightDataManager:
                 self.flight_data[bat_id]['z'].append(position.z)
                 self.flight_data[bat_id]['timestamps'].append(position.timestamp)
 
-            # Periodic log every 100 displayed points (1000 received positions)
-            if len(self.flight_data[bat_id]['x']) % 100 == 0:
-                print(f"Display: {bat_id} now has {len(self.flight_data[bat_id]['x'])} points (downsampled from {self._point_counters[bat_id]} received)")
-
-            # Also log first few additions to verify downsampling is working
-            if len(self.flight_data[bat_id]['x']) <= 5:
-                print(f"FlightDataManager: Added point #{len(self.flight_data[bat_id]['x'])} for {bat_id} (received count: {self._point_counters[bat_id]})")
+            # Diagnostic logs removed for clean console output
             
             # Periodic cleanup of stationary points
             current_time = time_module.time()
@@ -158,8 +151,6 @@ class FlightDataManager:
                 data['y'].extend(filtered_y)
                 data['z'].extend(filtered_z)
                 data['timestamps'].extend(filtered_timestamps)
-                
-                print(f"Cleaned up {len(x_data) - len(keep_indices)} stationary points for {bat_id}")
 
     def get_snapshot(self) -> Dict:
         """
