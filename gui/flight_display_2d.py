@@ -77,16 +77,14 @@ class FlightDisplay2D:
         control_frame = ttk.Frame(self.parent)
         control_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        # Bat selection
-        ttk.Label(control_frame, text="Display Bat:").pack(side=tk.LEFT)
-        self.bat_combobox = ttk.Combobox(control_frame, textvariable=self.selected_bat, width=15)
-        self.bat_combobox.pack(side=tk.LEFT, padx=(5, 20))
-
-        # View plane selection
-        ttk.Label(control_frame, text="View:").pack(side=tk.LEFT)
-        view_combobox = ttk.Combobox(control_frame, textvariable=self.view_plane,
-                                     values=["XY", "XZ", "YZ"], width=6, state="readonly")
-        view_combobox.pack(side=tk.LEFT, padx=(5, 20))
+        # View plane selection with radio buttons
+        ttk.Label(control_frame, text="View:").pack(side=tk.LEFT, padx=(0, 5))
+        view_frame = ttk.Frame(control_frame)
+        view_frame.pack(side=tk.LEFT, padx=(0, 20))
+        
+        ttk.Radiobutton(view_frame, text="XY", variable=self.view_plane, value="XY").pack(side=tk.LEFT)
+        ttk.Radiobutton(view_frame, text="XZ", variable=self.view_plane, value="XZ").pack(side=tk.LEFT)
+        ttk.Radiobutton(view_frame, text="YZ", variable=self.view_plane, value="YZ").pack(side=tk.LEFT)
 
         # Clear button
         clear_btn = ttk.Button(control_frame, text="Clear Paths", command=self._clear_paths_with_confirmation)
@@ -110,6 +108,32 @@ class FlightDisplay2D:
                                       command=self._toggle_display)
         label_check.pack(side=tk.LEFT, padx=(5, 5))
 
+        # Bat selection list frame (below controls)
+        bat_selection_frame = ttk.LabelFrame(self.parent, text="Display Bat", padding=5)
+        bat_selection_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        
+        # Create scrollable list for bat selection
+        bat_list_container = ttk.Frame(bat_selection_frame)
+        bat_list_container.pack(fill=tk.BOTH, expand=True)
+        
+        self.bat_listbox = tk.Listbox(bat_list_container, height=3, 
+                                      selectmode=tk.SINGLE, exportselection=False,
+                                      bg='#2B2D31', fg='#DCDDDE', 
+                                      selectbackground='#5865F2', selectforeground='white')
+        self.bat_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        bat_scrollbar = ttk.Scrollbar(bat_list_container, orient=tk.VERTICAL, 
+                                      command=self.bat_listbox.yview)
+        bat_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.bat_listbox.config(yscrollcommand=bat_scrollbar.set)
+        
+        # Initialize with "All"
+        self.bat_listbox.insert(tk.END, "All")
+        self.bat_listbox.selection_set(0)
+        
+        # Bind selection event
+        self.bat_listbox.bind('<<ListboxSelect>>', self._on_bat_list_select)
+
         # Matplotlib 2D figure - dark theme
         self.fig, self.ax = plt.subplots(figsize=(7, 7))
 
@@ -123,10 +147,12 @@ class FlightDisplay2D:
         # Reduce white space
         self.fig.subplots_adjust(left=0.1, right=0.95, top=0.95, bottom=0.1)
 
-        # Grid styling
+        # Grid styling - hide axis lines at origin to prevent horizontal/vertical lines
         self.ax.grid(True, color='#606060', alpha=0.15, linestyle='-', linewidth=0.3)
+        self.ax.axhline(y=0, color='#606060', alpha=0.15, linewidth=0.3)  # Match grid style
+        self.ax.axvline(x=0, color='#606060', alpha=0.15, linewidth=0.3)  # Match grid style
 
-        # Axis colors
+        # Axis styling
         self.ax.spines['bottom'].set_color(text_color)
         self.ax.spines['top'].set_color(text_color)
         self.ax.spines['left'].set_color(text_color)
@@ -151,7 +177,6 @@ class FlightDisplay2D:
         self._init_plot()
 
         # Bind events
-        self.selected_bat.trace('w', self._on_selection_change)
         self.view_plane.trace('w', self._on_view_change)
 
     def _init_plot(self):
@@ -320,10 +345,27 @@ class FlightDisplay2D:
             # Get data snapshot (thread-safe)
             flight_data = self.data_manager.get_snapshot()
 
-            # Update bat combobox
+            # Update bat listbox
             current_bats = list(flight_data.keys())
             current_bats.insert(0, "All")
-            self.bat_combobox['values'] = current_bats
+            
+            # Get current selection
+            current_selection = self.bat_listbox.curselection()
+            selected_value = self.bat_listbox.get(current_selection[0]) if current_selection else "All"
+            
+            # Update listbox contents
+            self.bat_listbox.delete(0, tk.END)
+            for bat in current_bats:
+                self.bat_listbox.insert(tk.END, bat)
+            
+            # Restore selection
+            try:
+                idx = current_bats.index(selected_value)
+                self.bat_listbox.selection_set(idx)
+            except (ValueError, tk.TclError):
+                # If previously selected bat no longer exists, select "All"
+                self.bat_listbox.selection_set(0)
+                self.selected_bat.set("All")
 
             # Plot bat paths
             selected_bat = self.selected_bat.get()
@@ -491,11 +533,23 @@ class FlightDisplay2D:
                 pass
         self.bat_lines.clear()
 
+    def _on_bat_list_select(self, event):
+        """Handle bat selection from listbox"""
+        selection = self.bat_listbox.curselection()
+        if selection:
+            selected_bat = self.bat_listbox.get(selection[0])
+            self.selected_bat.set(selected_bat)
+            
+            # Clear all line objects to force replot with new colors
+            for bat_id, line in self.bat_lines.items():
+                try:
+                    line.remove()
+                except:
+                    pass
+            self.bat_lines.clear()
+
     def _on_view_change(self, *args):
         """Handle view plane change"""
-        # Redraw static elements with new axis labels and bounds
-        self.static_elements_drawn = False
-        
         # Clear all line objects to force replot with new projection
         for bat_id, line in self.bat_lines.items():
             try:
@@ -503,3 +557,10 @@ class FlightDisplay2D:
             except:
                 pass
         self.bat_lines.clear()
+
+        # Redraw static elements with new axis labels and bounds
+        self._draw_static_elements()
+        self.static_elements_drawn = True
+
+        # Force canvas redraw
+        self.canvas.draw()
