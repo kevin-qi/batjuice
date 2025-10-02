@@ -37,6 +37,7 @@ class FlightDisplay2D:
         self.running = False
         self.update_thread: Optional[threading.Thread] = None
         self.selected_bat = tk.StringVar(value="All")
+        self.view_plane = tk.StringVar(value="XY")  # XY, XZ, or YZ
         self.show_trigger_radius = tk.BooleanVar(value=True)
         self.show_reactivation_radius = tk.BooleanVar(value=False)
         self.show_labels = tk.BooleanVar(value=True)
@@ -80,6 +81,12 @@ class FlightDisplay2D:
         ttk.Label(control_frame, text="Display Bat:").pack(side=tk.LEFT)
         self.bat_combobox = ttk.Combobox(control_frame, textvariable=self.selected_bat, width=15)
         self.bat_combobox.pack(side=tk.LEFT, padx=(5, 20))
+
+        # View plane selection
+        ttk.Label(control_frame, text="View:").pack(side=tk.LEFT)
+        view_combobox = ttk.Combobox(control_frame, textvariable=self.view_plane,
+                                     values=["XY", "XZ", "YZ"], width=6, state="readonly")
+        view_combobox.pack(side=tk.LEFT, padx=(5, 20))
 
         # Clear button
         clear_btn = ttk.Button(control_frame, text="Clear Paths", command=self._clear_paths_with_confirmation)
@@ -145,6 +152,7 @@ class FlightDisplay2D:
 
         # Bind events
         self.selected_bat.trace('w', self._on_selection_change)
+        self.view_plane.trace('w', self._on_view_change)
 
     def _init_plot(self):
         """Initialize the 2D plot"""
@@ -169,25 +177,38 @@ class FlightDisplay2D:
                 pass
         self.feeder_text_elements.clear()
 
-        # Set labels
+        # Get current view plane
+        view = self.view_plane.get()
+
+        # Set labels and bounds based on view plane
         text_color = '#DCDDDE'
-        self.ax.set_xlabel('X (m)', color=text_color)
-        self.ax.set_ylabel('Y (m)', color=text_color)
-
-        # Set room bounds
         bounds = self.room_config.get('bounds', {})
-        x_min, x_max = bounds.get('x_min', -3), bounds.get('x_max', 3)
-        y_min, y_max = bounds.get('y_min', -3), bounds.get('y_max', 3)
 
-        self.ax.set_xlim(x_min, x_max)
-        self.ax.set_ylim(y_min, y_max)
+        if view == "XY":
+            self.ax.set_xlabel('X (m)', color=text_color)
+            self.ax.set_ylabel('Y (m)', color=text_color)
+            axis1_min, axis1_max = bounds.get('x_min', -3), bounds.get('x_max', 3)
+            axis2_min, axis2_max = bounds.get('y_min', -3), bounds.get('y_max', 3)
+        elif view == "XZ":
+            self.ax.set_xlabel('X (m)', color=text_color)
+            self.ax.set_ylabel('Z (m)', color=text_color)
+            axis1_min, axis1_max = bounds.get('x_min', -3), bounds.get('x_max', 3)
+            axis2_min, axis2_max = bounds.get('z_min', 0), bounds.get('z_max', 3)
+        else:  # YZ
+            self.ax.set_xlabel('Y (m)', color=text_color)
+            self.ax.set_ylabel('Z (m)', color=text_color)
+            axis1_min, axis1_max = bounds.get('y_min', -3), bounds.get('y_max', 3)
+            axis2_min, axis2_max = bounds.get('z_min', 0), bounds.get('z_max', 3)
+
+        self.ax.set_xlim(axis1_min, axis1_max)
+        self.ax.set_ylim(axis2_min, axis2_max)
 
         # Equal aspect ratio
         self.ax.set_aspect('equal')
 
         # Draw room boundary
-        self.ax.plot([x_min, x_max, x_max, x_min, x_min],
-                     [y_min, y_min, y_max, y_max, y_min],
+        self.ax.plot([axis1_min, axis1_max, axis1_max, axis1_min, axis1_min],
+                     [axis2_min, axis2_min, axis2_max, axis2_max, axis2_min],
                      color='#6B7280', alpha=0.5, linewidth=1.5)
 
         # Draw feeders
@@ -195,12 +216,22 @@ class FlightDisplay2D:
 
     def _draw_feeders(self):
         """Draw feeder positions"""
+        view = self.view_plane.get()
+
         for feeder in self.feeder_configs:
             x, y, z = feeder.get_current_position()
             size = 0.15  # 30cm square, half-size
 
+            # Get 2D coordinates based on view plane
+            if view == "XY":
+                axis1, axis2 = x, y
+            elif view == "XZ":
+                axis1, axis2 = x, z
+            else:  # YZ
+                axis1, axis2 = y, z
+
             # Draw feeder square
-            rect = Rectangle((x-size, y-size), 2*size, 2*size,
+            rect = Rectangle((axis1-size, axis2-size), 2*size, 2*size,
                            facecolor='#CC7000', edgecolor='#D97E00',
                            alpha=0.6, linewidth=1.0)
             self.ax.add_patch(rect)
@@ -208,14 +239,14 @@ class FlightDisplay2D:
 
             # Add label if enabled
             if self.show_labels.get():
-                text_elem = self.ax.text(x, y, f'F{feeder.feeder_id}',
+                text_elem = self.ax.text(axis1, axis2, f'F{feeder.feeder_id}',
                                        ha='center', va='center',
                                        color='white', fontsize=8, fontweight='normal')
                 self.feeder_text_elements.append(text_elem)
 
             # Trigger radius circle
             if self.show_trigger_radius.get():
-                circle = Circle((x, y), feeder.activation_radius,
+                circle = Circle((axis1, axis2), feeder.activation_radius,
                               facecolor='none', edgecolor='#708090',
                               alpha=0.3, linewidth=1.5)
                 self.ax.add_patch(circle)
@@ -223,7 +254,7 @@ class FlightDisplay2D:
 
             # Reactivation radius circle
             if self.show_reactivation_radius.get():
-                circle = Circle((x, y), feeder.reactivation_distance,
+                circle = Circle((axis1, axis2), feeder.reactivation_distance,
                               facecolor='none', edgecolor='#708090',
                               alpha=0.3, linewidth=1.5, linestyle='--')
                 self.ax.add_patch(circle)
@@ -346,10 +377,20 @@ class FlightDisplay2D:
 
     def _plot_bat_path_2d(self, data: Dict, bat_id: str, color: str):
         """Plot bat flight path in 2D using Line2D for maximum performance"""
-        x_data = list(data['x'])
-        y_data = list(data['y'])
+        view = self.view_plane.get()
 
-        if len(x_data) < 1:
+        # Get appropriate data based on view plane
+        if view == "XY":
+            axis1_data = list(data['x'])
+            axis2_data = list(data['y'])
+        elif view == "XZ":
+            axis1_data = list(data['x'])
+            axis2_data = list(data['z'])
+        else:  # YZ
+            axis1_data = list(data['y'])
+            axis2_data = list(data['z'])
+
+        if len(axis1_data) < 1:
             return
 
         # Remove old line for this bat if it exists
@@ -361,30 +402,30 @@ class FlightDisplay2D:
             del self.bat_lines[bat_id]
 
         # Plot trajectory if we have at least 2 points
-        if len(x_data) > 1:
+        if len(axis1_data) > 1:
             # Check if grey (for opacity)
             import matplotlib.colors as mcolors
             if isinstance(color, str):
                 color_rgb = mcolors.to_rgb(color)
             else:
                 color_rgb = color
-            
+
             is_grey = (color_rgb[0] == color_rgb[1] == color_rgb[2])
             alpha = 0.4 if is_grey else 0.8
             linewidth = 2.0 if is_grey else 2.5
 
             # Create Line2D using ax.plot (fastest method)
-            line, = self.ax.plot(x_data, y_data, 
-                                color=color, 
-                                alpha=alpha, 
+            line, = self.ax.plot(axis1_data, axis2_data,
+                                color=color,
+                                alpha=alpha,
                                 linewidth=linewidth,
                                 solid_capstyle='round',
                                 solid_joinstyle='round')
             self.bat_lines[bat_id] = line
 
         # Current position marker (always show if we have data)
-        if len(x_data) > 0 and len(y_data) > 0:
-            scatter = self.ax.scatter([x_data[-1]], [y_data[-1]],
+        if len(axis1_data) > 0 and len(axis2_data) > 0:
+            scatter = self.ax.scatter([axis1_data[-1]], [axis2_data[-1]],
                                     c=[color], s=120, alpha=1.0,
                                     edgecolors='#2B2D31', linewidth=2.5, marker='o')
             self.bat_scatter_artists.append(scatter)
@@ -443,6 +484,19 @@ class FlightDisplay2D:
     def _on_selection_change(self, *args):
         """Handle bat selection change"""
         # Clear all line objects to force replot with new colors
+        for bat_id, line in self.bat_lines.items():
+            try:
+                line.remove()
+            except:
+                pass
+        self.bat_lines.clear()
+
+    def _on_view_change(self, *args):
+        """Handle view plane change"""
+        # Redraw static elements with new axis labels and bounds
+        self.static_elements_drawn = False
+        
+        # Clear all line objects to force replot with new projection
         for bat_id, line in self.bat_lines.items():
             try:
                 line.remove()
