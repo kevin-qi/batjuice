@@ -41,6 +41,7 @@ class FlightDisplay2D:
         self.show_trigger_radius = tk.BooleanVar(value=True)
         self.show_reactivation_radius = tk.BooleanVar(value=False)
         self.show_labels = tk.BooleanVar(value=True)
+        self.use_smoothing = tk.BooleanVar(value=False)  # Smoothing toggle
 
         # Colors for different bats (same as 3D display)
         self.bat_colors = [
@@ -124,6 +125,13 @@ class FlightDisplay2D:
                                       bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
                                       activebackground='#2B2D31', activeforeground='#DCDDDE')
         label_check.pack(side=tk.LEFT, padx=(5, 5))
+
+        smoothing_check = tk.Checkbutton(control_frame, text="Smooth",
+                                         variable=self.use_smoothing,
+                                         command=self._toggle_display,
+                                         bg='#2B2D31', fg='#DCDDDE', selectcolor='#1E1F22',
+                                         activebackground='#2B2D31', activeforeground='#DCDDDE')
+        smoothing_check.pack(side=tk.LEFT, padx=(5, 5))
 
         # Bat selection with radio buttons (below controls)
         bat_selection_frame = tk.Frame(self.parent, bg='#2B2D31')
@@ -356,8 +364,9 @@ class FlightDisplay2D:
                     pass
             self.bat_scatter_artists.clear()
 
-            # Get data snapshot (thread-safe)
-            flight_data = self.data_manager.get_snapshot()
+            # Get data snapshot (thread-safe) - use smoothing if enabled
+            use_smoothed = self.use_smoothing.get()
+            flight_data = self.data_manager.get_snapshot(use_smoothed=use_smoothed)
 
             # Update bat radio buttons ONLY if bat list changed
             current_bats = ["All"] + list(flight_data.keys())

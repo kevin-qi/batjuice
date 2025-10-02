@@ -26,6 +26,14 @@ class FlightDataManager:
             'z': deque(maxlen=max_points),
             'timestamps': deque(maxlen=max_points)
         })
+        
+        # Smoothed flight data storage (EMA)
+        self.smoothed_data = defaultdict(lambda: {
+            'x': deque(maxlen=max_points),
+            'y': deque(maxlen=max_points),
+            'z': deque(maxlen=max_points),
+            'timestamps': deque(maxlen=max_points)
+        })
 
         # Thread safety
         self.lock = threading.Lock()
@@ -34,9 +42,12 @@ class FlightDataManager:
         self._point_counters = {}
         self.display_subsample_rate = 10  # Show every 10th point (100Hz → 10Hz)
         
+        # Smoothing parameters
+        self.ema_alpha = 0.3  # EMA smoothing factor (0 = more smooth, 1 = no smoothing)
+        
         # Stationary point cleanup
         self.last_cleanup_time = {}  # bat_id -> last cleanup time
-        self.cleanup_interval = 5.0  # Clean up every 5 seconds  # Show every 10th point (100Hz → 10Hz)
+        self.cleanup_interval = 5.0  # Clean up every 5 seconds  # Show every 10th point (100Hz → 10Hz)  # Clean up every 5 seconds  # Show every 10th point (100Hz → 10Hz)
 
     def add_position(self, bat_id: str, position):
         """
@@ -62,10 +73,32 @@ class FlightDataManager:
         # Add every position (downsampling now handled by GUI update rate)
         if True:  # Always add - rate limiting done by caller
             with self.lock:
+                # Add raw position
                 self.flight_data[bat_id]['x'].append(position.x)
                 self.flight_data[bat_id]['y'].append(position.y)
                 self.flight_data[bat_id]['z'].append(position.z)
                 self.flight_data[bat_id]['timestamps'].append(position.timestamp)
+                
+                # Calculate and add smoothed position (EMA)
+                if len(self.smoothed_data[bat_id]['x']) == 0:
+                    # First point - no smoothing needed
+                    smoothed_x = position.x
+                    smoothed_y = position.y
+                    smoothed_z = position.z
+                else:
+                    # Apply exponential moving average
+                    prev_x = self.smoothed_data[bat_id]['x'][-1]
+                    prev_y = self.smoothed_data[bat_id]['y'][-1]
+                    prev_z = self.smoothed_data[bat_id]['z'][-1]
+                    
+                    smoothed_x = self.ema_alpha * position.x + (1 - self.ema_alpha) * prev_x
+                    smoothed_y = self.ema_alpha * position.y + (1 - self.ema_alpha) * prev_y
+                    smoothed_z = self.ema_alpha * position.z + (1 - self.ema_alpha) * prev_z
+                
+                self.smoothed_data[bat_id]['x'].append(smoothed_x)
+                self.smoothed_data[bat_id]['y'].append(smoothed_y)
+                self.smoothed_data[bat_id]['z'].append(smoothed_z)
+                self.smoothed_data[bat_id]['timestamps'].append(position.timestamp)
 
             # Diagnostic logs removed for clean console output
             
@@ -152,16 +185,21 @@ class FlightDataManager:
                 data['z'].extend(filtered_z)
                 data['timestamps'].extend(filtered_timestamps)
 
-    def get_snapshot(self) -> Dict:
+    def get_snapshot(self, use_smoothed: bool = False) -> Dict:
         """
         Get thread-safe snapshot copy of all flight data
+
+        Args:
+            use_smoothed: If True, return smoothed data; if False, return raw data
 
         Returns:
             dict: Copy of flight data with all bat trajectories
         """
         with self.lock:
             snapshot = {}
-            for bat_id, data in self.flight_data.items():
+            source_data = self.smoothed_data if use_smoothed else self.flight_data
+            
+            for bat_id, data in source_data.items():
                 snapshot[bat_id] = {
                     'x': list(data['x']),
                     'y': list(data['y']),
