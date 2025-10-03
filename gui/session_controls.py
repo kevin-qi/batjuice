@@ -28,6 +28,7 @@ class SessionControls:
         
         # Session state
         self.session_running = False
+        self.session_start_time = None
         
         # Variables
         self.session_name = tk.StringVar()
@@ -48,6 +49,9 @@ class SessionControls:
         
         # Setup controls
         self._setup_controls()
+        
+        # Start timer update loop
+        self._update_timer()
     
     def _setup_controls(self):
         """Setup the session control layout"""
@@ -104,7 +108,12 @@ class SessionControls:
         
         # Status indicator (dark theme) - green when ready
         self.status_label = ttk.Label(button_frame, text="Ready to start", foreground="#3BA55D")
-        self.status_label.pack(side=tk.LEFT, padx=(0, 20))
+        self.status_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Timer label
+        self.timer_label = ttk.Label(button_frame, text="00:00:00", foreground="#DCDDDE", 
+                                     font=('TkDefaultFont', 10, 'bold'))
+        self.timer_label.pack(side=tk.LEFT)
     
     def _browse_data_path(self):
         """Browse for data directory"""
@@ -138,6 +147,7 @@ class SessionControls:
             
             # Update session state
             self.session_running = True
+            self.session_start_time = datetime.now()
             
             # Update UI - yellow when running
             self.start_btn.config(state="disabled")
@@ -149,7 +159,7 @@ class SessionControls:
                 'name': self.session_name.get(),
                 'date': self.session_date.get(),
                 'data_path': data_path,
-                'start_time': datetime.now().isoformat()
+                'start_time': self.session_start_time.isoformat()
             }
             
             # Call start callback
@@ -164,11 +174,13 @@ class SessionControls:
         try:
             # Update session state
             self.session_running = False
+            self.session_start_time = None
 
             # Update UI
             self.start_btn.config(state="normal")
             self.stop_btn.config(state="disabled")
             self.status_label.config(text="Session Stopped", foreground="red")
+            self.timer_label.config(text="00:00:00")
 
             # Call stop callback
             if self.on_stop:
@@ -176,6 +188,20 @@ class SessionControls:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to stop session: {e}")
+
+    
+    def _update_timer(self):
+        """Update the session timer display"""
+        if self.session_running and self.session_start_time:
+            elapsed = datetime.now() - self.session_start_time
+            hours = int(elapsed.total_seconds() // 3600)
+            minutes = int((elapsed.total_seconds() % 3600) // 60)
+            seconds = int(elapsed.total_seconds() % 60)
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            self.timer_label.config(text=time_str)
+        
+        # Schedule next update (every 1000ms)
+        self.parent.after(1000, self._update_timer)
     
     def get_session_info(self) -> dict:
         """Get current session information"""
