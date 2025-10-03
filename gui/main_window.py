@@ -39,7 +39,7 @@ class MainWindow:
         self.system = None  # Will be set by main system
 
         # Create shared flight data manager (thread-safe)
-        self.flight_data_manager = FlightDataManager(max_points=10000)
+        self.flight_data_manager = FlightDataManager(max_points=100000)
 
         # Create main window
         self.root = tk.Tk()

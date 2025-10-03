@@ -222,7 +222,9 @@ class FlightDataManager:
         """Clear all flight data (thread-safe)"""
         with self.lock:
             self.flight_data.clear()
+            self.smoothed_data.clear()
             self._point_counters.clear()
+            self.last_cleanup_time.clear()
 
     def get_data_length(self, bat_id: str) -> int:
         """
