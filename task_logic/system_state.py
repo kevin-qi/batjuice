@@ -129,6 +129,7 @@ class SystemFeeder:
     # Motor configuration
     duration_ms: int = 500
     motor_speed: int = 255
+    probability: float = 1.0  # Reward probability (0.0-1.0) for partial reinforcement
     
     # Event histories - tracks which bats triggered events
     beam_break_history: List[BeamBreakEvent] = field(default_factory=list)
@@ -204,7 +205,7 @@ class SystemState:
     
     def add_feeder(self, feeder_id: int, name: str, position: tuple, active: bool = True, 
                    activation_radius: float = 3.0, reactivation_distance: float = 2.0, 
-                   duration_ms: int = 500, motor_speed: int = 255) -> SystemFeeder:
+                   duration_ms: int = 500, motor_speed: int = 255, probability: float = 1.0) -> SystemFeeder:
         """Add or update feeder in system state"""
         if feeder_id not in self.feeders:
             self.feeders[feeder_id] = SystemFeeder(
@@ -215,7 +216,8 @@ class SystemState:
                 activation_radius=activation_radius,
                 reactivation_distance=reactivation_distance,
                 duration_ms=duration_ms,
-                motor_speed=motor_speed
+                motor_speed=motor_speed,
+                probability=probability
             )
         else:
             feeder = self.feeders[feeder_id]
@@ -226,6 +228,7 @@ class SystemState:
             feeder.reactivation_distance = reactivation_distance
             feeder.duration_ms = duration_ms
             feeder.motor_speed = motor_speed
+            feeder.probability = probability
         return self.feeders[feeder_id]
     
     def update_bat_position(self, bat_id: str, position: tuple, timestamp: float = None):
