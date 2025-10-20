@@ -108,7 +108,7 @@ class TaskLogicAdapter:
                 is_available=feeder_state.owner_bat_id is None,
                 activation_radius=feeder_state.activation_radius,
                 duration_ms=feeder_state.duration_ms,
-                probability=1.0  # Default probability
+                probability=feeder_state.probability
             )
             
             trigger_event = TriggerEvent(
