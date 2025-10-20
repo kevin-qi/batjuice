@@ -223,8 +223,6 @@ class FeederController:
         current_time = time.time()
         self.stats['beam_breaks_processed'] += 1
         
-        print(f"Beam break detected on feeder {feeder_id}")
-        
         # Log beam break event
         if self.data_logger:
             self.data_logger.log_beam_break(feeder_id)
@@ -234,7 +232,7 @@ class FeederController:
         
         if not triggering_bat_id:
             feeder = self.system_state.feeders[feeder_id]
-            print(f"⚠️  BEAM BREAK IGNORED: No bats within {feeder.activation_radius}m of feeder {feeder_id}")
+            print(f"⚠️  No bats within {feeder.activation_radius}m of feeder {feeder_id} - beam break ignored")
             return
         
         # Calculate distance and position for history
@@ -257,21 +255,16 @@ class FeederController:
         if bat.activation_state == "ACTIVE":
             self.system_state.record_beam_break(feeder_id, triggering_bat_id, distance, bat_position)
             print(f"✈️  FLIGHT recorded: Bat {triggering_bat_id} at feeder {feeder_id}")
-        else:
-            print(f"⏭️  Beam break NOT counted as flight (bat {triggering_bat_id} is {bat.activation_state})")
 
         # Call task logic to determine if reward should be delivered
         should_deliver, reason = should_deliver_reward(
             self.system_state, feeder_id, triggering_bat_id
         )
 
-        # Debug output - show current bat state
-        bat_activation_state = bat.activation_state
-        bat_last_reward_feeder = bat.last_reward_feeder_id
-        print(f"🦇 Bat {triggering_bat_id} state: {bat_activation_state} (last reward feeder: {bat_last_reward_feeder})")
-        print(f"🤖 Task logic decision: {should_deliver} - {reason}")
-
         if should_deliver:
+            print(f"🦇 Bat {triggering_bat_id} triggered feeder {feeder_id}")
+            print(f"🤖 Task logic decision: APPROVED - {reason}")
+            
             success = self._deliver_reward(feeder_id, triggering_bat_id)
             if success:
                 self.stats['rewards_delivered'] += 1
@@ -288,7 +281,7 @@ class FeederController:
                 print(f"Hardware failed to deliver reward")
         else:
             self.stats['rewards_denied'] += 1
-    
+            print(f"🚫 Reward DENIED for bat {triggering_bat_id} at feeder {feeder_id} - {reason}")    
     def _find_closest_bat_to_feeder(self, feeder_id: int) -> Optional[str]:
         """
         Find the closest bat to a feeder that's within triggering distance.
@@ -330,11 +323,6 @@ class FeederController:
             if distance <= beam_break_threshold and distance < min_distance:
                 min_distance = distance
                 closest_bat_id = bat_id
-        
-        if closest_bat_id:
-            print(f"Identified triggering bat: {closest_bat_id} at {min_distance:.2f}m from feeder {feeder_id}")
-        else:
-            print(f"No bats within {beam_break_threshold}m of feeder {feeder_id} - beam break ignored")
         
         return closest_bat_id
     
