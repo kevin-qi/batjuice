@@ -77,7 +77,8 @@ class FeederController:
                 activation_radius=config.activation_radius,
                 reactivation_distance=config.reactivation_distance,
                 duration_ms=config.duration_ms,
-                motor_speed=config.speed
+                motor_speed=config.speed,
+                probability=config.probability
             )
     
     def change_feeder_position(self, feeder_id: int, position_index: int) -> bool:
@@ -421,7 +422,8 @@ class FeederController:
             if 'active' in kwargs:
                 feeder.active = kwargs['active']
             if 'probability' in kwargs:
-                # Update probability in stored feeder_configs
+                feeder.probability = kwargs['probability']
+                # Also update probability in stored feeder_configs
                 if feeder_id in self.feeder_configs:
                     self.feeder_configs[feeder_id].probability = kwargs['probability']
     
@@ -518,13 +520,7 @@ class FeederController:
             config.activation_radius = feeder.activation_radius
             config.beam_break_count = len(feeder.beam_break_history)
             config.reward_delivery_count = len(feeder.reward_delivery_history)
-            
-            # Get probability from stored feeder_configs
-            if feeder_id in self.feeder_configs:
-                config.probability = self.feeder_configs[feeder_id].probability
-            else:
-                config.probability = 1.0  # Default if not found
-                
+            config.probability = feeder.probability
             config.active = feeder.active  # Whether feeder is active
             config.state = 'Ready' if feeder.active else 'Inactive'
 
