@@ -476,7 +476,7 @@ class FeederPanel:
                 
             # Apply probability change
             if abs(new_prob - current_config.probability) > 0.01:
-                # Note: Probability is now handled in task logic configuration
+                self.feeder_controller.update_feeder_config(feeder_id, probability=new_prob)
                 changes_made.append(f"Probability: {current_config.probability:.2f} -> {new_prob:.2f}")
                 
             # Apply speed change
