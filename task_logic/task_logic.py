@@ -50,17 +50,11 @@ class TaskLogic:
                 self.config["reactivation_time"] = global_config["reactivation_time"]
             if "position_timeout" in global_config:
                 self.config["position_timeout"] = global_config["position_timeout"]
-        
-        print(f"Loaded global task logic config: {self.config}")
     
     def _apply_config(self):
         """Apply loaded configuration to instance variables"""
         self.reactivation_time = self.config["reactivation_time"]
         self.position_timeout = self.config["position_timeout"]
-        
-        print(f"Applied task logic config - reactivation_time: {self.reactivation_time}s, "
-              f"position_timeout: {self.position_timeout}s"
-              f" (distance parameters now come from individual feeders)")
     
     def save_config(self):
         """Save current configuration to user_config.json - distance params now stored per feeder"""
@@ -284,10 +278,6 @@ class TaskLogic:
         bat.last_reward_feeder_id = feeder_id
         bat.last_reward_time = current_time
         bat.distance_threshold_met_time = None  # Reset distance timing
-        
-        feeder = system_state.feeders[feeder_id]
-        print(f"Bat {bat_id} set to INACTIVE after reward, must fly "
-              f"{feeder.reactivation_distance}m away for {self.reactivation_time}s to reactivate")
     
     def _calculate_3d_distance(self, pos1: Tuple, pos2: Tuple) -> float:
         """Calculate 3D Euclidean distance between two positions"""

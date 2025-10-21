@@ -274,8 +274,6 @@ class FeederController:
                 
                 # Record reward in system state
                 self.system_state.record_reward_delivery(feeder_id, triggering_bat_id)
-                
-                print(f"🎯 Bat {triggering_bat_id} set to INACTIVE after reward from feeder {feeder_id}")
             else:
                 self.stats['rewards_denied'] += 1
                 print(f"Hardware failed to deliver reward")
