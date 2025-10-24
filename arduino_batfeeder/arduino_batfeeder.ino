@@ -256,13 +256,16 @@ const unsigned long TTL_CHECK_INTERVAL = 2;  // Check every 2ms (faster for resp
   Serial.print(", current_counter=");
   Serial.println(current_counter);
 
-  // Report motor activation to PC
+  // Report motor activation to PC with Arduino timestamp in microseconds
+  unsigned long timestamp_us = micros();
   Serial.print("MOTOR_START:");
   Serial.print(feeder_id);
   Serial.print(":");
   Serial.print(duration_ms);
   Serial.print(":");
-  Serial.println(speed);
+  Serial.print(speed);
+  Serial.print(":");
+  Serial.println(timestamp_us);  // Send timestamp in microseconds
 }
 
  // Timer1 interrupt service routine (called every 1ms)
@@ -342,9 +345,12 @@ void update_motors_interrupt() {
       Serial.print(motor_target_times[i]);
       Serial.println("]");
 
-      // Report motor stop to PC
+      // Report motor stop to PC with Arduino timestamp in microseconds
+      unsigned long timestamp_us = micros();
       Serial.print("MOTOR_STOP:");
-      Serial.println(i);
+      Serial.print(i);
+      Serial.print(":");
+      Serial.println(timestamp_us);  // Send timestamp in microseconds
     }
   }
 }
@@ -355,8 +361,14 @@ void update_motors_interrupt() {
      bool current_state = digitalRead(BEAM_BREAK_PINS[i]);
      if (beam_break_state[i] == HIGH && current_state == LOW) {
        // Beam broken (HIGH to LOW transition)
+       // Send with Arduino timestamp in microseconds
+       unsigned long timestamp_us = micros();
+
        Serial.print("BEAM:");
-       Serial.println(i);
+       Serial.print(i);
+       Serial.print(":");
+       Serial.println(timestamp_us);
+
        // Blink LED to indicate detection
        digitalWrite(LED_PIN, LOW);
        delay(50);
@@ -371,7 +383,11 @@ void update_motors_interrupt() {
 
    // Detect rising edge (LOW to HIGH transition)
    if (ttl_input_state == LOW && current_ttl == HIGH) {
-     Serial.println("TTL");
+     // Send with Arduino timestamp in microseconds
+     unsigned long timestamp_us = micros();
+
+     Serial.print("TTL:");
+     Serial.println(timestamp_us);
      // Don't echo TTL to output - just report to PC
    }
 

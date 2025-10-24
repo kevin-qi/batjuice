@@ -199,33 +199,34 @@ class FeederController:
         """Main control loop - monitors for beam breaks"""
         while self.running:
             try:
-                # Check for beam break events
+                # Check for beam break events (now returns tuples of (feeder_id, arduino_timestamp))
                 beam_breaks = self.arduino.get_beam_breaks()
-                
-                for feeder_id in beam_breaks:
-                    self._handle_beam_break(feeder_id)
-                
+
+                for feeder_id, arduino_timestamp in beam_breaks:
+                    self._handle_beam_break(feeder_id, arduino_timestamp)
+
                 time.sleep(0.01)  # 100 Hz control loop
-                
+
             except Exception as e:
                 import traceback
                 print(f"Error in feeder control loop: {e}")
                 traceback.print_exc()
                 time.sleep(0.1)
-    
-    def _handle_beam_break(self, feeder_id: int):
+
+    def _handle_beam_break(self, feeder_id: int, arduino_timestamp: float = None):
         """
         Handle beam break event using task logic.
-        
+
         Args:
             feeder_id: ID of feeder with beam break
+            arduino_timestamp: Arduino timestamp in seconds (from interrupt_counter)
         """
         current_time = time.time()
         self.stats['beam_breaks_processed'] += 1
-        
-        # Log beam break event
+
+        # Log beam break event with Arduino timestamp
         if self.data_logger:
-            self.data_logger.log_beam_break(feeder_id)
+            self.data_logger.log_beam_break(feeder_id, arduino_timestamp)
         
         # Find triggering bat using feeder's activation radius
         triggering_bat_id = self._find_closest_bat_to_feeder(feeder_id)
@@ -264,14 +265,14 @@ class FeederController:
         if should_deliver:
             print(f"🦇 Bat {triggering_bat_id} triggered feeder {feeder_id}")
             print(f"🤖 Task logic decision: APPROVED - {reason}")
-            
-            success = self._deliver_reward(feeder_id, triggering_bat_id)
+
+            success = self._deliver_reward(feeder_id, triggering_bat_id, manual=False, arduino_timestamp=arduino_timestamp)
             if success:
                 self.stats['rewards_delivered'] += 1
-                
+
                 # Update bat state AFTER successful reward delivery
                 update_bat_state_after_reward(self.system_state, feeder_id, triggering_bat_id)
-                
+
                 # Record reward in system state
                 self.system_state.record_reward_delivery(feeder_id, triggering_bat_id)
             else:
@@ -331,32 +332,37 @@ class FeederController:
         dz = pos1[2] - pos2[2]
         return math.sqrt(dx*dx + dy*dy + dz*dz)
     
-    def _deliver_reward(self, feeder_id: int, bat_id: str, manual: bool = False) -> bool:
+    def _deliver_reward(self, feeder_id: int, bat_id: str, manual: bool = False, arduino_timestamp: float = None) -> bool:
         """
         Deliver reward through hardware.
-        
+
         Args:
             feeder_id: ID of the feeder
             bat_id: ID of the bat receiving reward
             manual: Whether this is a manual reward
-            
+            arduino_timestamp: Arduino timestamp from triggering event (if available)
+
         Returns:
             bool: True if successful
         """
         if feeder_id not in self.system_state.feeders:
             return False
-        
+
         feeder = self.system_state.feeders[feeder_id]
-        
+
         print(f"Activating motor {feeder_id} for {feeder.duration_ms}ms at speed {feeder.motor_speed}...")
         success = self.arduino.activate_motor(feeder_id, feeder.duration_ms, feeder.motor_speed)
-        
+
         if success:
-            # Create reward event for callback
-            reward_event = RewardEvent.create_now(feeder_id, bat_id, manual)
+            # Create reward event with Arduino timestamp if available
+            if arduino_timestamp is not None:
+                reward_event = RewardEvent(feeder_id, bat_id, arduino_timestamp, manual)
+            else:
+                reward_event = RewardEvent.create_now(feeder_id, bat_id, manual)
+
             if self.reward_callback:
                 self.reward_callback(reward_event)
-            
+
             print(f"✓ Reward delivered: Feeder {feeder_id}, Bat {bat_id}, Manual: {manual}")
             return True
         else:
@@ -528,3 +534,23 @@ class FeederController:
             'rewards_per_minute': (self.stats['rewards_delivered'] / runtime) * 60 if runtime > 0 else 0,
             'reward_success_rate': (self.stats['rewards_delivered'] / self.stats['beam_breaks_processed']) if self.stats['beam_breaks_processed'] > 0 else 0
         }
+
+    def get_all_feeder_states_json(self) -> str:
+        """
+        Get current state of all feeders as compact JSON string.
+        Queries live data from system_state.feeders (same source GUI updates).
+        
+        Returns:
+            str: JSON string like '{"1": {"dur": 500, "spd": 255, "prob": 1.0}, "2": {...}}'
+        """
+        import json
+        
+        states = {}
+        for feeder_id, feeder in self.system_state.feeders.items():
+            states[str(feeder_id)] = {
+                'dur': feeder.duration_ms,
+                'spd': feeder.motor_speed,
+                'prob': feeder.probability
+            }
+        
+        return json.dumps(states, separators=(',', ':'))  # Compact format

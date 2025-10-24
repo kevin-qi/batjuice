@@ -189,6 +189,9 @@ class BatFeederSystem:
                 data_logger=self.data_logger
             )
             
+            # Connect data logger to feeder controller for live state queries
+            self.data_logger.get_feeder_states = self.feeder_controller.get_all_feeder_states_json
+            
             # Log initial configuration
             self.data_logger.log_config_change(feeder_configs, "System startup")
             
@@ -325,13 +328,13 @@ class BatFeederSystem:
         except Exception as e:
             self.event_logger.error(f"Error processing TTL pulse: {e}")
     
-    def _on_motor_event(self, feeder_id: int, action: str, duration_ms: int):
+    def _on_motor_event(self, feeder_id: int, action: str, duration_ms: int, arduino_timestamp: float = None):
         """Handle motor start/stop event"""
         try:
-            # Log motor event
-            self.data_logger.log_motor_event(feeder_id, action, duration_ms)
+            # Log motor event with Arduino timestamp
+            self.data_logger.log_motor_event(feeder_id, action, duration_ms, arduino_timestamp)
             print(f"Motor {feeder_id} {action} logged (duration: {duration_ms}ms)")
-            
+
         except Exception as e:
             self.event_logger.error(f"Error processing motor event: {e}")
 

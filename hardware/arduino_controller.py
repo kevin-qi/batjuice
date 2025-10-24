@@ -126,51 +126,68 @@ class ArduinoController:
         """Process incoming message from Arduino"""
         if not message:
             return
-            
+
         parts = message.split(':')
         if len(parts) < 2:
             return
-            
+
         msg_type = parts[0]
-        
+
         if msg_type == 'BEAM':
-            # Beam break message: BEAM:feeder_id
+            # Beam break message: BEAM:feeder_id:timestamp_us
             try:
                 feeder_id = int(parts[1])
-                self.beam_break_queue.put(feeder_id)
-            except ValueError:
-                print(f"Invalid beam break message: {message}")
-                
+                arduino_timestamp_us = int(parts[2]) if len(parts) > 2 else None
+                # Convert Arduino timestamp (microseconds) to seconds for consistency
+                arduino_timestamp = arduino_timestamp_us / 1000000.0 if arduino_timestamp_us is not None else None
+                # Store tuple of (feeder_id, arduino_timestamp)
+                self.beam_break_queue.put((feeder_id, arduino_timestamp))
+            except (ValueError, IndexError) as e:
+                print(f"Invalid beam break message: {message} - {e}")
+
         elif msg_type == 'TTL':
-            # TTL pulse message: TTL
-            ttl_event = TTLEvent.create_now()
-            self.ttl_queue.put(ttl_event)
-            if self.ttl_callback:
-                self.ttl_callback(ttl_event)
-                
+            # TTL pulse message: TTL:timestamp_us
+            try:
+                arduino_timestamp_us = int(parts[1]) if len(parts) > 1 else None
+                # Convert Arduino timestamp (microseconds) to seconds for consistency
+                arduino_timestamp = arduino_timestamp_us / 1000000.0 if arduino_timestamp_us is not None else None
+                ttl_event = TTLEvent(timestamp=arduino_timestamp) if arduino_timestamp else TTLEvent.create_now()
+                self.ttl_queue.put(ttl_event)
+                if self.ttl_callback:
+                    self.ttl_callback(ttl_event)
+            except (ValueError, IndexError) as e:
+                print(f"Invalid TTL message: {message} - {e}")
+
         elif msg_type == 'MOTOR_START':
-            # Motor activation message: MOTOR_START:feeder_id:duration_ms
+            # Motor activation message: MOTOR_START:feeder_id:duration_ms:speed:timestamp_us
             try:
                 feeder_id = int(parts[1])
                 duration_ms = int(parts[2])
-                print(f"Motor {feeder_id} started for {duration_ms}ms")
-                # Log motor activation event
+                speed = int(parts[3]) if len(parts) > 3 else 255
+                arduino_timestamp_us = int(parts[4]) if len(parts) > 4 else None
+                # Convert Arduino timestamp (microseconds) to seconds for consistency
+                arduino_timestamp = arduino_timestamp_us / 1000000.0 if arduino_timestamp_us is not None else None
+                print(f"Motor {feeder_id} started for {duration_ms}ms at speed {speed}")
+                # Log motor activation event with Arduino timestamp
                 if hasattr(self, 'motor_callback') and self.motor_callback:
-                    self.motor_callback(feeder_id, 'start', duration_ms)
-            except (ValueError, IndexError):
-                print(f"Invalid motor start message: {message}")
-                
+                    self.motor_callback(feeder_id, 'start', duration_ms, arduino_timestamp)
+            except (ValueError, IndexError) as e:
+                print(f"Invalid motor start message: {message} - {e}")
+
         elif msg_type == 'MOTOR_STOP':
-            # Motor stop message: MOTOR_STOP:feeder_id
+            # Motor stop message: MOTOR_STOP:feeder_id:timestamp_us
             try:
                 feeder_id = int(parts[1])
+                arduino_timestamp_us = int(parts[2]) if len(parts) > 2 else None
+                # Convert Arduino timestamp (microseconds) to seconds for consistency
+                arduino_timestamp = arduino_timestamp_us / 1000000.0 if arduino_timestamp_us is not None else None
                 print(f"Motor {feeder_id} stopped")
-                # Log motor stop event
+                # Log motor stop event with Arduino timestamp
                 if hasattr(self, 'motor_callback') and self.motor_callback:
-                    self.motor_callback(feeder_id, 'stop', 0)
-            except (ValueError, IndexError):
-                print(f"Invalid motor stop message: {message}")
-                
+                    self.motor_callback(feeder_id, 'stop', 0, arduino_timestamp)
+            except (ValueError, IndexError) as e:
+                print(f"Invalid motor stop message: {message} - {e}")
+
         elif msg_type == 'ERROR':
             print(f"Arduino error: {parts[1]}")
     
@@ -201,12 +218,12 @@ class ArduinoController:
             print(f"✗ Error sending motor command: {e}")
             return False
     
-    def get_beam_breaks(self) -> list[int]:
+    def get_beam_breaks(self) -> list[tuple]:
         """
         Get all beam break events from queue
-        
+
         Returns:
-            list[int]: List of feeder IDs with beam breaks
+            list[tuple]: List of (feeder_id, arduino_timestamp) tuples
         """
         events = []
         try:
