@@ -27,10 +27,10 @@
  // Pin Definitions
  const int BEAM_BREAK_PIN_0 = 2;    // Beam break sensor for feeder 0
  const int BEAM_BREAK_PIN_1 = 3;    // Beam break sensor for feeder 1
- const int BEAM_BREAK_PIN_2 = 6;    // Beam break sensor for feeder 2
- const int BEAM_BREAK_PIN_3 = 7;    // Beam break sensor for feeder 3
- const int TTL_INPUT_PIN = 4;       // TTL input pin
- const int TTL_OUTPUT_PIN = 5;      // TTL output pin
+ const int BEAM_BREAK_PIN_2 = 4;    // Beam break sensor for feeder 2
+ const int BEAM_BREAK_PIN_3 = 5;    // Beam break sensor for feeder 3
+ const int TTL_INPUT_PIN = 6;       // TTL input pin
+ const int TTL_OUTPUT_PIN = 7;      // TTL output pin
  const int LED_PIN = 13;            // Built-in LED for status
 
  // Motor Control Variables
